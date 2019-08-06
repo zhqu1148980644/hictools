@@ -1,0 +1,25 @@
+name: hicpipeline
+channels:
+    - conda-forge
+    - bioconda
+    - hcc
+dependencies:
+    - python >= 3.7
+    - pip
+    - numpy
+    - pbgzip
+    - lz4-c
+    - bwa
+    - samtools
+    - sra-tools
+    - aspera-cli
+    - pairix
+    - fastqc
+    - parallel-fastq-dump   
+    - pairtools
+    - cooler
+    - pip:
+        - cython
+        - multiqc
+        - decorator >= 4.1.0
+
