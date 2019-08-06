@@ -157,5 +157,4 @@ def extract_features(mcool, nproc):
 
 
 if __name__ == "__main__":
-    print('asdasd')
     cli()

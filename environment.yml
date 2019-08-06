@@ -6,7 +6,6 @@ channels:
 dependencies:
     - python >= 3.7
     - pip
-    - numpy
     - pbgzip
     - lz4-c
     - bwa
@@ -20,6 +19,14 @@ dependencies:
     - cooler
     - pip:
         - cython
+        - numpy
+        - scipy
+        - pandas
+        - matplotlib
         - multiqc
         - decorator >= 4.1.0
+        - ray
+        - scikit-learn
+        - statsmodels
+        - pomegranate
 

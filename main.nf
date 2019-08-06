@@ -21,7 +21,7 @@ def index_prefix = params.index.replaceAll(".*/", "")
 
 // map parameters
 def assembly = params.map.assembly
-def chunksize = params.map.chunksize
+def chunksize = params.map.chunksize * 4
 Boolean merge_bam = params.map.merge_bam
 def genome = params.map.genome
 
@@ -562,7 +562,7 @@ process merge_exp_dedup {
         merge_cmd = "${catFile(exp_pairs, t)}"
     """
     ${merge_cmd} ${exp_pairs} | pairtools dedup \
-        --max-mismatch 2000 --mark-dups \
+        --max-mismatch 2 --mark-dups \
         --output ${pair} \
         --output-dups ${duplicate} \
     """

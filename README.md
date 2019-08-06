@@ -12,6 +12,12 @@ complex distributed pipelines.
 conda install -c bioconda nextflow
 nextflow run zhqu1148980644/hictools
 ```
+
+### Update
+```bash
+nextflow drop -f zhqu1148980644/hictools
+nextflow run zhqu1148980644/hictools
+```
 # Usage
 ## Pipeline
 - ###### Fill in the config file.

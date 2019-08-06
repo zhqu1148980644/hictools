@@ -8,7 +8,6 @@ import subprocess
 import warnings
 
 import numpy as np
-from line_profiler import LineProfiler
 from scipy import sparse
 
 CPU_CORE = multiprocessing.cpu_count()
@@ -263,20 +262,6 @@ def is_symmetric(mat, rtol=1e-05, atol=1e-08):
         return (np.abs(mat - mat.T) > rtol).nnz == 0
     else:
         raise ValueError('Only support for np.ndarray and scipy.sparse_matrix')
-
-
-def count_cls(func):
-    @functools.wraps(func)
-    def inner(*args, **kwargs):
-        func_return = func(*args, **kwargs)
-        lp = LineProfiler()
-        lp_wrap = lp(func)
-        lp_wrap(*args, **kwargs)
-        lp.print_stats()
-        return func_return
-
-    return inner
-
 
 def fill_diag(mat: np.ndarray,
               offset: int = 1,
