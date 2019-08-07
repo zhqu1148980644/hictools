@@ -697,7 +697,7 @@ process zoomify_cool {
 
 process mcool_to_features {
     tag {"Extract genomic features of ${tag(key)}"} 
-    storeDir {"results/features/${tag(key)}"}
+    publishDir {"results/features/${tag(key)}"}
     cpus 20
     maxForks 1
 
@@ -705,7 +705,7 @@ process mcool_to_features {
     set key, file(mcool) from mcools
     
     output:
-    val key into features
+    set key, file("*") into features
     
     script:
     (sample, tags) = values(key)

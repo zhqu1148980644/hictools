@@ -65,7 +65,7 @@ nextflow run -params-file config_template.yml -profile cluster hictools -resume
 ```
 > Pipeline built by `Nextflow` can be executed in multi platforms including 
 SGE, LSF, SLURM, PBS, HTCondor batch schedulers , Kubernetes and
- Amazon AWS cloud platform by changing the executor specified in `nextflow.config`.
+ Amazon AWS cloud platform by changing the executor specified in `~/.nextflow/assets/zhqu1148980644/hictools/nextflow.config`.
 
 > The default executor is SGE(Sun Grid Engine). You may need to change it 
 depending on the platform you use.
