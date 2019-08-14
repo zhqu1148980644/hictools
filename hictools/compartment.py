@@ -3,12 +3,13 @@ Tools for compartment analysis.
 """
 # TODO(zhongquan789@126.com): handling intra and inter interaction
 
+from typing import Callable
 
 import numpy as np
 import scipy.linalg as nl
 from scipy import sparse
 
-from utils import is_symmetric
+from .utils import is_symmetric
 
 
 def linear_bins(lo, hi):
@@ -16,7 +17,7 @@ def linear_bins(lo, hi):
 
 
 def get_decay(mat: np.ndarray,
-              span_fn: callable = linear_bins,
+              span_fn: Callable[[int, int], np.ndarray] = linear_bins,
               ndiags: int = None,
               ignore_nan: bool = True,
               ignore_zero: bool = False,
@@ -35,7 +36,7 @@ def get_decay(mat: np.ndarray,
     if ndiags is None:
         ndiags = length
     bins_span = span_fn(0, length)
-    decay = np.zeros(length, dtype=np.float)
+    decay = np.zeros(length, dtype=mat.dtype)
 
     if record:
         nums_array = np.zeros(length, dtype=np.int)
@@ -67,8 +68,10 @@ def get_decay(mat: np.ndarray,
             nums_array[start: end] = num_pixels
 
     if record:
-        results = np.zeros(shape=length,
-                           dtype=[('average', np.float), ('number', np.int)])
+        results = np.zeros(
+            shape=length,
+            dtype=[('average', mat.dtype), ('number', np.int)]
+        )
         results['average'] = decay
         results['number'] = nums_array
         return results
@@ -140,7 +143,7 @@ def get_eigen_compartment(mat, vecnum: int = 3, subtract_mean=False, divide_by_m
     return eigvecs
 
 
-def corr_sorter(chrom_matrix, eigvecs: list):
+def corr_sorter(chrom_matrix, eigvecs: list, balance: bool = True, ignore_diags: int = 3):
     """Choose the most possible vector which may infer the compartment A/B seperation based on pearson correlation matrix.
         1. Choose vector:
             In general, the sums of pearson correlation value within A and B is larger than the sums of pearson
@@ -150,6 +153,8 @@ def corr_sorter(chrom_matrix, eigvecs: list):
 
     :param chrom_matrix:
     :param eigvecs:
+    :param balance:
+    :param ignore_diags:
     :return:
     """
 
@@ -157,9 +162,11 @@ def corr_sorter(chrom_matrix, eigvecs: list):
 
         com_mask1 = compartment > 0
         com_mask2 = compartment < 0
-        return (np.mean(mat[np.ix_(com_mask1, com_mask1)]),
-                np.mean(mat[np.ix_(com_mask2, com_mask2)]),
-                np.mean(mat[np.ix_(com_mask1, com_mask2)]))
+        return (
+            np.mean(mat[np.ix_(com_mask1, com_mask1)]),
+            np.mean(mat[np.ix_(com_mask2, com_mask2)]),
+            np.mean(mat[np.ix_(com_mask1, com_mask2)])
+        )
 
     coms = []
     for i, component in enumerate(eigvecs):
@@ -175,15 +182,26 @@ def corr_sorter(chrom_matrix, eigvecs: list):
         else:
             possible = True
 
-        mean_aa, mean_bb, mean_ab = mean_corr(chrom_matrix.corr(full=False), component)
+        mean_aa, mean_bb, mean_ab = mean_corr(
+            mat=chrom_matrix.corr(balance=balance, full=False, ignore_diags=ignore_diags),
+            compartment=component
+        )
 
-        coms.append((component * np.sign(mean_aa - mean_bb),
-                     mean_aa + mean_bb - 2 * mean_ab,
-                     possible))
+        coms.append(
+            (
+                component * np.sign(mean_aa - mean_bb),
+                mean_aa + mean_bb - 2 * mean_ab,
+                possible
+            )
+        )
 
     sorted_coms = sorted(coms, key=lambda x: (x[2], x[1]), reverse=True)
 
     return np.array([com[0] for com in sorted_coms])
+
+
+def plain_sorter(chrom_matrix, eigvecs: list, *kwargs):
+    return np.array(eigvecs)
 
 
 class Pca(object):

@@ -3,20 +3,18 @@ Interface.
 """
 import functools
 import inspect
-from typing import Union
 from functools import partial
-from contextlib import redirect_stderr
+from typing import Union, Callable, Tuple
 
-import ray
 import cooler
 import numpy as np
-from scipy import sparse
 import pandas as pd
+from scipy import sparse
 
-from compartment import corr_sorter, linear_bins, get_decay, get_pca_compartment, get_eigen_compartment, Expected
-from peaks import hiccups, get_chunk_slices, fetch_regions
-from tad import split_diarray, call_domain, insulation_score, di_score, train_hmm, hidden_path
-from utils import remove_small_gap, is_symmetric, suppress_warning, fill_diag
+from .compartment import corr_sorter, linear_bins, get_decay, get_pca_compartment, get_eigen_compartment, Expected
+from .peaks import hiccups, get_chunk_slices, fetch_regions
+from .tad import split_diarray, call_domain, insulation_score, di_score, train_hmm, hidden_path
+from .utils import remove_small_gap, is_symmetric, suppress_warning, fill_diag, LazyProperty, lazy_method, check_slice
 
 
 def infer_mat(mat,
@@ -26,8 +24,7 @@ def infer_mat(mat,
               check_symmetric: bool = False,
               copy: bool = False) -> tuple:
     """Maintain non-zero contacts outside bad regions in a triangular sparse matrix.\n
-    When calculating decay, always keep contacts outside bad regions to non-nan, and
-    keep contacs within bad regions to nan.\n
+    When calculating decay, always keep contacts outside bad regions to non-nan, and keep contacts within bad regions to nan.\n
     This step could take considerable time as dense matrix enable the fast computaion of decay whereas sparse matrix
     can reduce space occupancy and speed up the calculation of OE matrix.\n
 
@@ -124,11 +121,7 @@ def infer_mat(mat,
 
 
 def handle_mask(func):
-    """
-
-    :param func:
-    :return:
-    """
+    """Deprecated"""
     sig = inspect.signature(func)
     if 'full' in sig.parameters.keys():
         raise ValueError("full arguiment already defined.")
@@ -139,9 +132,11 @@ def handle_mask(func):
         if not isinstance(result, np.ndarray):
             return result
         if (len(result.shape) == 2) and not np.equal(*result.shape):
-            nan_mat = np.full([result.shape[0], self.shape[0]],
-                              np.nan,
-                              result.dtype)
+            nan_mat = np.full(
+                [result.shape[0], self.shape[0]],
+                np.nan,
+                result.dtype
+            )
             nan_mat[self.mask[None, :]] = result
             return result
 
@@ -164,49 +159,53 @@ def handle_mask(func):
             return result
 
     params = list(sig.parameters.values())
-    params.append(inspect.Parameter('full',
-                                    inspect.Parameter.KEYWORD_ONLY,
-                                    default=True))
+    params.append(inspect.Parameter(
+        'full',
+        inspect.Parameter.KEYWORD_ONLY,
+        default=True)
+    )
     inner.__signature__ = sig.replace(parameters=params)
 
     return inner
 
 
-@ray.remote
 class ChromMatrix(object):
-    """
-
-    """
     HMM_MODELS = {}
 
-    def __init__(self, cool: cooler.Cooler, chrom: str, span_fn: callable = linear_bins):
+    def __init__(self, cool: Union[cooler.Cooler, str],
+                 chrom: str,
+                 span_fn: Callable[[int, int], np.ndarray] = linear_bins):
         """
 
-        :param cool:
-        :param chrom:
-        :param span_fn:
+        :param cool: Union[cooler.Cooler, str]. Path of .cool file or cooler.Cooler object.
+        :param chrom: str: Chromosome name.
+        :param span_fn: Callable[[int, int], np.ndarray]. Callable object return a array determine the calculation of decay.
         """
+        if isinstance(cool, str):
+            cool = cooler.Cooler(cool)
         self.chrom = chrom
         self._observed = self._get_sparse(cool, chrom)
         bins = cool.bins().fetch(chrom)
-        self._weights = np.array(bins['weight'])
+        self._weights = np.array(bins['weight']).astype(np.float32)
         self._start = bins.index.min()
         self._mask = ~np.isnan(self._weights)
-        self._decay = {}
         self._cool = cool
         self._binsize = cool.binsize
         self._span_fn = span_fn
         self.shape = self._observed.shape
 
     @staticmethod
-    def _get_sparse(cool: cooler.Cooler, chrom: str) -> np.ndarray:
-        """
+    def _get_sparse(cool: cooler.Cooler, chrom: str) -> sparse.coo_matrix:
+        """Fetch a triangular sparse matrix with no value in gap regions.
 
-        :param cool:
-        :param chrom:
-        :return:
+        :param cool: cooler.Cooler.
+        :param chrom: str.
+        :return: sparse.coo_matrix.
         """
-        mat = sparse.triu(cool.matrix(sparse=True, balance=True).fetch(chrom), format='coo')
+        mat = sparse.triu(
+            cool.matrix(sparse=True, balance=True).fetch(chrom),
+            format='coo'
+        ).astype(np.float32)
         mat.data[np.isnan(mat.data)] = 0
         mat.eliminate_zeros()
 
@@ -216,31 +215,36 @@ class ChromMatrix(object):
     def mask(self) -> np.ndarray:
         """
 
-        :return:
+        :return: np.ndarray. 1-d ndarray with gap regions set to False.
         """
         return self._mask
 
-    @property
+    @LazyProperty
     def mask2d(self) -> np.ndarray:
         """
 
-        :return:
+        :return: np.ndarray. 2-d ndarray with gap regions set to False.
         """
         return self._mask[:, np.newaxis] * self.mask[np.newaxis, :]
 
-    @property
-    def mask_index(self) -> tuple:
+    @LazyProperty
+    def mask_index(self) -> Tuple[np.ndarray, np.ndarray]:
+        """
+
+        :return: Tuple[np.ndarray, np.ndarray]. Arrays representing valid regions' row and column index respectively.
+        """
         return np.ix_(self.mask, self.mask)
 
     def observed(self,
                  balance: bool = True,
-                 sparse=False, copy=False) -> Union[np.ndarray, sparse.spmatrix]:
-        """
+                 sparse: bool = False,
+                 copy: bool = False) -> Union[np.ndarray, sparse.coo_matrix]:
+        """Return observed matrix.
 
-        :param balance:
-        :param sparse:
-        :param copy:
-        :return:
+        :param balance: bool. If use factors to normalize the observed contacts matrix.
+        :param sparse: bool. If return sprase version of matrix in scipy.sparse.coo_matrix format.
+        :param copy: bool. If return the copy of original matrix.
+        :return: Union[np.ndarray, sparse.spmatrix].
         """
         observed = self._observed
         if not balance:
@@ -258,27 +262,29 @@ class ChromMatrix(object):
 
         return observed
 
+    @lazy_method
     def decay(self, balance: bool = True, ndiags: int = None) -> np.ndarray:
-        """
+        """Calculate expected count of each interaction across a certain distance.
 
-        :param balance:
-        :param ndiags:
-        :return:
+        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :param ndiags: int. Number of diagonals to ignore.
+        :return: np.ndarray. 1-d array representing expected values in each distance.
         """
-        if self._decay.get(balance, None) is None:
-            self._decay[balance] = get_decay(self.observed(balance=balance,
-                                                           sparse=True,
-                                                           copy=False)
-                                             .toarray(),
-                                             span_fn=self._span_fn,
-                                             ndiags=ndiags)
-        return self._decay[balance]
+        return get_decay(
+            self.observed(
+                balance=balance,
+                sparse=True,
+                copy=False
+            ).toarray(),
+            span_fn=self._span_fn,
+            ndiags=ndiags
+        )
 
     def expected(self, balance: bool = True) -> Expected:
-        """Caluculate expected count of each interaction across a certain distance.
+        """Calculate expected matrix that pixles in a certain diagonal have the same value.
 
-        :param balance:
-        :return:
+        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :return: np.ndarray. 2-d matrix representing expected matrix.
         """
         return Expected(self.decay(balance=balance))
 
@@ -289,16 +295,20 @@ class ChromMatrix(object):
            diag_value: int = 1,
            sparse: bool = False,
            full: bool = True) -> np.ndarray:
-        """
+        """Calculate expected-matrix-corrected matrix to reduce distance bias in hic experiments.
 
-        :param full:
-        :param balance:
-        :param ignore_diags:
-        :param diag_value:
-        :param sparse:
-        :return:
+        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :param ignore_diags: int. Number of diagonals to ignore. Values in these ignored diagonals will set to 'diag_value'.
+        :param diag_value: int. Value to fill ignored diagonals of output oe matrix.
+        :param sparse: bool. If return sparsed version of oe matrix.
+        :param full: bool. Return non-gap region of output oe matrix if full set to False.
+        :return: np.ndarray. 2-d array representing oe matrix.
         """
-        oe = self.observed(balance, sparse=True, copy=True)
+        oe = self.observed(
+            balance=balance,
+            sparse=True,
+            copy=True
+        )
         x, y = oe.nonzero()
         oe.data /= self.decay()[y - x]
         if not sparse:
@@ -318,18 +328,23 @@ class ChromMatrix(object):
              ignore_diags: int = 1,
              diag_value: int = 1,
              full: bool = True) -> np.ndarray:
+        """Calculate correlation matrix based on matrix..
+
+        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :param ignore_diags: int. Number of diagonals to ignore. Values in these ignored diagonals will set to 'diag_value'.
+        :param diag_value: int. Value to fill ignored diagonals of output corr matrix.
+        :param full: bool. Return non-gap region of output corr matrix if full set to False.
+        :return: np.ndarray. 2-d array representing corr matrix.
         """
 
-        :param full:
-        :param balance:
-        :param ignore_diags:
-        :param diag_value:
-        :return:
-        """
-
-        oe = self.oe(balance, ignore_diags, diag_value, full=False)
+        oe = self.oe(
+            balance=balance,
+            ignore_diags=ignore_diags,
+            diag_value=diag_value,
+            full=False
+        )
         oe[np.isnan(oe)] = 0
-        corr = np.corrcoef(np.nan_to_num(oe))
+        corr = np.corrcoef(oe).astype(np.float32)
         for diag_index in range(-ignore_diags + 1, ignore_diags):
             fill_diag(corr, diag_index, diag_value)
 
@@ -346,23 +361,26 @@ class ChromMatrix(object):
                    ignore_diags: int = 1,
                    normalize: bool = True,
                    full: bool = True) -> np.ndarray:
+        """Calculate insulation score.
+
+        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :param window_size: int. Diameter of square in which contacts are summed along the diagonal.
+        :param ignore_diags: int. Number of diagonals to ignore.
+        :param normalize: bool. If normalize the insulation score with log2 ratio of insu_score and mean insu_score.
+        :param full: bool. Return non-gap region of output insulation score if full set to False.
+        :return: np.ndarray.
         """
 
-        :param full:
-        :param balance:
-        :param window_size:
-        :param ignore_diags:
-        :param normalize:
-        :return:
-        """
-
-        insu_score = insulation_score(self.observed(balance,
-                                                    sparse=True,
-                                                    copy=False)
-                                      .tocsr(copy=False),
-                                      window_size=window_size,
-                                      ignore_diags=ignore_diags,
-                                      normalize=normalize)
+        insu_score = insulation_score(
+            self.observed(
+                balance=balance,
+                sparse=True,
+                copy=False
+            ).tocsr(copy=False),
+            window_size=window_size,
+            ignore_diags=ignore_diags,
+            normalize=normalize
+        )
 
         if not full:
             return insu_score[self.mask]
@@ -371,30 +389,33 @@ class ChromMatrix(object):
 
     def di_score(self,
                  balance: bool = True,
-                 windowsize: int = 20,
+                 window_size: int = 20,
                  ignore_diags: int = 1,
                  fetch_window: bool = False,
                  method: str = 'standard',
                  full: bool = True) -> np.ndarray:
+        """Calculate directionality index.
+
+        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :param window_size: int. Length of upstream array and downstream array.
+        :param ignore_diags: int. Number of diagonals to ignore.
+        :param fetch_window: bool. If set to True, return np.hstack([contacts_up. contacts_down])
+        :param method: str. Method for computing directionality index. 'standard' and 'adptive' are supported by now.
+        :param full: Return non-gap region of output directionality index if full set to False.
+        :return: np.ndarray.
         """
 
-        :param full:
-        :param fetch_window:
-        :param balance:
-        :param windowsize:
-        :param ignore_diags:
-        :param method:
-        :return:
-        """
-
-        score = di_score(self.observed(balance,
-                                       sparse=True,
-                                       copy=False)
-                         .tocsr(copy=False),
-                         window_size=windowsize,
-                         ignore_diags=ignore_diags,
-                         fetch_window=fetch_window,
-                         method=method)
+        score = di_score(
+            self.observed(
+                balance=balance,
+                sparse=True,
+                copy=False
+            ).tocsr(copy=False),
+            window_size=window_size,
+            ignore_diags=ignore_diags,
+            fetch_window=fetch_window,
+            method=method
+        )
         if not full:
             return score[self.mask]
         else:
@@ -415,12 +436,16 @@ class ChromMatrix(object):
         """
         key = (str(self._cool), window_size, method)
         if self.HMM_MODELS.get(key, None) is None:
-            self.HMM_MODELS[key] = train_hmm(self._cool,
-                                             num_mix,
-                                             partial(di_score,
-                                                     window_size=window_size,
-                                                     ignore_diags=ignore_diags,
-                                                     method=method))
+            self.HMM_MODELS[key] = train_hmm(
+                self._cool,
+                num_mix,
+                partial(
+                    di_score,
+                    window_size=window_size,
+                    ignore_diags=ignore_diags,
+                    method=method
+                )
+            )
 
         return self.HMM_MODELS[key]
 
@@ -436,20 +461,23 @@ class ChromMatrix(object):
               chunk_size: int = 500,
               bin_index: bool = True,
               num_cpus: int = 1) -> pd.DataFrame:
-        """
+        """Using hiccups algorithm to detect loops in a band regions close to the main diagonal of hic contact matrix.
 
-        :param max_dis:
-        :param p:
-        :param w:
-        :param fdrs:
-        :param sigs:
-        :param single_fcs:
-        :param double_fcs:
-        :param ignore_single_gap:
-        :param chunk_size:
-        :param bin_index:
-        :param num_cpus:
-        :return:
+        :param max_dis: int. Max distance of loops. Due to the natural property of loops(distance less than 8M) and
+        computation bound of hiccups algorithm, hiccups algorithm are applied only in a band region over the main diagonal
+        to speed up the whole process.
+        :param p: int. Radius of innner square in hiccups. Pixels in this region will not be counted in the calcualtion of background.
+        :param w: int. Radius of outer square in hiccps. Only pixels in this region will be counted in the calculation of background.
+        :param fdrs: tuple. Tuple of fdrs to control the false discovery rate for each background.
+        :param sigs: tuple. Tuple of padjs thresholds for each background.
+        :param single_fcs: tuple. Padjs threshold for each region. Valid peak's padjs should pass all four fold-hange thresholds.
+        :param double_fcs: tuple. Padjs threshold for each region. Valid peak's padjs should pass either one of four fold-change thresholds.
+        :param ignore_single_gap: bool. If ignore small gaps when filtering peaks close to gap regions.
+        :param chunk_size: int. Height of each chunk(submatrix).
+        :param bin_index: bool. Return actual genomic positions of peaks if set to False.
+        :param num_cpus: int. Number of cores to call peaks. Calculation based on chunks and process of find peaks based
+        on different chromosome will run in parallel.
+        :return: pd.Dataframe.
         """
 
         def expected_fetcher(key, slices, expected=self.expected()):
@@ -466,30 +494,34 @@ class ChromMatrix(object):
         band_width = max_dis // self._binsize
         if chunk_size is None:
             chunk_size = band_width
-        chunks = get_chunk_slices(length=self.shape[0],
-                                  band_width=band_width,
-                                  height=chunk_size,
-                                  ov_length=2 * w)
+        chunks = get_chunk_slices(
+            length=self.shape[0],
+            band_width=band_width,
+            height=chunk_size,
+            ov_length=2 * w
+        )
         chunks = ((self.chrom, chunk) for chunk in chunks)
         kernels = fetch_regions(p, w, kernel=True)
-        with open('ray.log', 'w') as f:
-            with redirect_stderr(f):
-                peaks = hiccups(expected_fetcher=expected_fetcher,
-                                observed_fetcher=observed_fetcher,
-                                factors_fetcher=factors_fetcher,
-                                chunks=chunks,
-                                kernels=kernels,
-                                num_cpus=num_cpus,
-                                max_dis=max_dis,
-                                outer_radius=w,
-                                resolution=self._binsize,
-                                fdrs=fdrs,
-                                sigs=sigs,
-                                single_fcs=single_fcs,
-                                double_fcs=double_fcs,
-                                ignore_single_gap=ignore_single_gap,
-                                bin_index=bin_index)
-        return peaks
+
+        peaks_df = hiccups(
+            expected_fetcher=expected_fetcher,
+            observed_fetcher=observed_fetcher,
+            factors_fetcher=factors_fetcher,
+            chunks=chunks,
+            kernels=kernels,
+            num_cpus=num_cpus,
+            max_dis=max_dis,
+            outer_radius=w,
+            resolution=self._binsize,
+            fdrs=fdrs,
+            sigs=sigs,
+            single_fcs=single_fcs,
+            double_fcs=double_fcs,
+            ignore_single_gap=ignore_single_gap,
+            bin_index=bin_index
+        )
+
+        return peaks_df
 
     def tads(self,
              hmm_model=None,
@@ -509,10 +541,12 @@ class ChromMatrix(object):
         :return:
         """
         if hmm_model is None:
-            hmm_model = self.fetch_hmm_model(num_mix=num_mix,
-                                             window_size=window_size,
-                                             ignore_diags=ignore_diags,
-                                             method=method)
+            hmm_model = self.fetch_hmm_model(
+                num_mix=num_mix,
+                window_size=window_size,
+                ignore_diags=ignore_diags,
+                method=method
+            )
 
         tads = []
         for start, diarray in split_diarray(self.di_score(), remove_small_gap(~self.mask)):
@@ -521,33 +555,47 @@ class ChromMatrix(object):
 
         return pd.DataFrame(tads)
 
+    @lazy_method
     def compartments(self,
                      method: str = 'pca',
+                     balance: bool = True,
+                     ignore_diags: int = 3,
                      vec_range: Union[slice, int] = slice(0, 3),
                      com_range: Union[slice, int] = slice(0, 1),
                      sort_fn: callable = corr_sorter,
                      full: bool = True) -> np.ndarray:
-        """
+        """Calculate A/B compatments.
 
-        :param full:
-        :param method:
-        :param vec_range:
-        :param com_range:
-        :param sort_fn:
-        :return:
+        :param method: str. Currently, two methods are supported for detecting A/B compatements. 'pca' uses principle
+        component analysis based on corr matrix and 'eigen' uses eigen value decomposition based on OE-1 matrix.
+        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :param ignore_diags: int. Number of diagonals to ignore.
+        :param vec_range: Union[slice, int]. Choose a certain subset of vectors sorted by eigen values in ascending
+        order for detecting A/B compartment.
+        :param com_range: Union[slice, int]. Choose a certain subset of output components sorted by sort_fn.
+        :param sort_fn: callable. Callable object used for sorting components based on other infos which can facilitate
+        the dissertation of A/B compartment.
+        :param full: bool. Return non-gap region of output directionality index if full set to False.
+        :return: np.ndarray. Array representing the A/B seperation of compartment. Negative value denotes B compartment.
         """
-        vecnum = vec_range.stop if isinstance(vec_range, slice) else vec_range
+        vec_range = check_slice(vec_range)
+        com_range = check_slice(com_range)
+        vecnum = vec_range.stop
         if method == 'pca':
-            vecs = get_pca_compartment(mat=self.corr(full=False),
-                                       vecnum=vecnum)
+            vecs = get_pca_compartment(
+                mat=self.corr(balance=balance, full=False, ignore_diags=ignore_diags),
+                vecnum=vecnum
+            )
         elif method == 'eigen':
-            vecs = get_eigen_compartment(mat=self.oe(full=False) - 1,
-                                         vecnum=vecnum)
+            vecs = get_eigen_compartment(
+                mat=self.oe(balance=balance, full=False, ignore_diags=ignore_diags) - 1,
+                vecnum=vecnum
+            )
         else:
             raise ValueError("Only support for 'eigrn' or 'pca' ")
         vecs = vecs[vec_range]
         if sort_fn is not None:
-            vecs = sort_fn(self, vecs)
+            vecs = sort_fn(self, eigvecs=vecs, balance=balance, ignore_diags=ignore_diags)
         vecs = vecs[com_range]
         if vecs.shape[0] == 1:
             vecs = vecs.ravel()
@@ -556,10 +604,18 @@ class ChromMatrix(object):
             return vecs
         else:
             if len(vecs.shape) == 2:
-                nan_mat = np.full((vecs.shape[0], self.shape[1]), np.nan, dtype=vecs.dtype)
-                nan_mat[: self.mask] = vecs
+                nan_mat = np.full(
+                    shape=(vecs.shape[0], self.shape[1]),
+                    fill_value=np.nan,
+                    dtype=vecs.dtype
+                )
+                nan_mat[:, self.mask] = vecs
             else:
-                nan_mat = np.full(self.shape[1], np.nan, dtype=vecs.dtype)
+                nan_mat = np.full(
+                    shape=self.shape[1],
+                    fill_value=np.nan,
+                    dtype=vecs.dtype
+                )
                 nan_mat[self.mask] = vecs
             return nan_mat
 

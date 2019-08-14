@@ -6,6 +6,7 @@ import multiprocessing
 import shutil
 import subprocess
 import warnings
+from typing import Union
 
 import numpy as np
 from scipy import sparse
@@ -13,13 +14,39 @@ from scipy import sparse
 CPU_CORE = multiprocessing.cpu_count()
 
 
-def suppress_warning(func=None, warning_msg=RuntimeWarning):
-    """
+class LazyProperty(object):
+    """Lazy property for caching computed properties"""
 
-    :param func:
-    :param warning_msg:
-    :return:
-    """
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        else:
+            value = self.func(instance)
+            setattr(instance, self.func.__name__, value)
+            return value
+
+
+def lazy_method(func):
+    """Lazy method for caching results of time-consuming methods"""
+
+    @functools.wraps(func)
+    def lazy(self, *args, **kwargs):
+        key = "_lazy_{}_{}_{}".format(func.__name__, args, kwargs)
+        if hasattr(self, key):
+            return getattr(self, key)
+        else:
+            value = func(self, *args, **kwargs)
+            setattr(self, key, value)
+            return value
+
+    return lazy
+
+
+def suppress_warning(func=None, warning_msg=RuntimeWarning):
+    """Ignore the given type of warning omitted from the function. The default warning is RuntimeWarning."""
     if func is None:
         return functools.partial(suppress_warning, warning_msg=warning_msg)
 
@@ -34,6 +61,40 @@ def suppress_warning(func=None, warning_msg=RuntimeWarning):
         return results
 
     return inner
+
+
+def mask_array(mask, *args) -> np.ndarray:
+    """Mask all ndarray in args with a given Boolean array.
+
+    :param mask: np.ndarray. Boolean array where desired values are marked with True.
+    :param args: tuple. tuple of np.ndarray. Masking will be applied to each ndarray.
+    :return: np.ndarray. A generator yield a masked ndarray each time.
+    """
+    for mat in args:
+        if isinstance(mat, (tuple, list)):
+            yield tuple(mask_array(mask, *mat))
+        else:
+            if len(mat.shape) == 1:
+                yield mat[mask]
+            else:
+                yield mat[:, mask]
+
+
+def index_array(index, *args):
+    """Index all ndarray in args with a given Integer array. Be cautious of the order of each value in indexed ndarray.
+
+    :param index: np.ndarray. Integer array with indexs of desired values'.
+    :param args: tuple. tuple of np.ndarray. Indexing will be applied to each ndarray.
+    :return: np.ndarray. A generator yield indexed ndarray each time.
+    """
+    yield from mask_array(index, *args)
+
+
+def check_slice(s: Union[slice, int]):
+    if not isinstance(s, slice):
+        return slice(0, s, 1)
+    else:
+        return s
 
 
 class auto_open(object):
@@ -88,12 +149,14 @@ class auto_open(object):
                 stdin, stdout = file, subprocess.PIPE
             else:
                 raise ValueError('mode only support write and read')
-            pipe = subprocess.Popen(command,
-                                    stdin=stdin,
-                                    stdout=stdout,
-                                    shell=True,
-                                    bufsize=-1,
-                                    universal_newlines=text)
+            pipe = subprocess.Popen(
+                command,
+                stdin=stdin,
+                stdout=stdout,
+                shell=True,
+                bufsize=-1,
+                universal_newlines=text
+            )
 
             return pipe
 
@@ -181,16 +244,16 @@ class auto_open(object):
         return self._stream
 
     def __dir__(self):
-        return list(self.__dict__.keys()) + dir(self._stream)
+        return list(set(list(self.__dict__.keys()) + dir(self._stream)))
 
     def __repr__(self):
         return repr(self._stream)
 
 
-def stream_to_file(filename, stream):
-    """
+def stream_to_file(filename: str, stream):
+    """Read from stream and write into file named filename line by line.
 
-    :param filename:
+    :param filename: str. File name of the disired output file.
     :param stream:
     :return:
     """
@@ -199,33 +262,12 @@ def stream_to_file(filename, stream):
             f.write(line)
 
 
-def mask_array(mask, *args):
-    """
-
-    :param mask:
-    :param args:
-    :return:
-    """
-    for mat in args:
-        if isinstance(mat, (tuple, list)):
-            yield tuple(mask_array(mask, *mat))
-        else:
-            if len(mat.shape) == 1:
-                yield mat[mask]
-            else:
-                yield mat[:, mask]
-
-
-def index_array(index, *args):
-    yield from mask_array(index, *args)
-
-
 def remove_small_gap(gap_mask: np.ndarray, gap_size: int = 1) -> np.ndarray:
-    """
+    """Remove gaps with length shorter than the specified length threshold in a Boolean array.
 
-    :param gap_mask:
-    :param gap_size:
-    :return:
+    :param gap_mask: np.ndarray. Boolen array(mask) in which gap region are marked with True.
+    :param gap_size: int. Gap length threshold to define a gap as small gap.
+    :return: np.ndarray. New mask with small gaps are removed. ie: True to False.
     """
     # TODO(zhongquan789@126.com) support for gap_size
     gap_indexs = np.where(gap_mask)[0]
@@ -245,13 +287,15 @@ def remove_small_gap(gap_mask: np.ndarray, gap_size: int = 1) -> np.ndarray:
 
 
 @suppress_warning
-def is_symmetric(mat, rtol=1e-05, atol=1e-08):
-    """
+def is_symmetric(mat: Union[np.ndarray, sparse.spmatrix],
+                 rtol: float = 1e-05,
+                 atol: float = 1e-08) -> bool:
+    """Check if the input matrix is symmetric.
 
-    :param mat:
-    :param rtol:
-    :param atol:
-    :return:
+    :param mat: np.ndarray/scipy.sparse.spmatrix.
+    :param rtol: float. The relative tolerance parameter. see np.allclose.
+    :param atol: float. The absolute tolerance parameter. see np.allclose
+    :return: bool. True if the input matrix is symmetric.
     """
     if isinstance(mat, np.ndarray):
         data, data_t = mat, mat.T
@@ -263,17 +307,19 @@ def is_symmetric(mat, rtol=1e-05, atol=1e-08):
     else:
         raise ValueError('Only support for np.ndarray and scipy.sparse_matrix')
 
+
 def fill_diag(mat: np.ndarray,
               offset: int = 1,
               fill_value: float = 1.0,
               copy: bool = False) -> np.ndarray:
     """
+    Fill specified value in a given diagonal of a 2d ndarray.
     Reference: https://stackoverflow.com/questions/9958577/changing-the-values-of-the-diagonal-of-a-matrix-in-numpy
-    :param mat:
-    :param offset:
-    :param fill_value:
-    :param copy:
-    :return:
+    :param mat: np.ndarray.
+    :param offset: int. The diagonal's index. 0 means the main diagonal.
+    :param fill_value: float. Value to fill the diagonal.
+    :param copy: bool. Set True to fill value in the copy of input matrix.
+    :return: np.ndarray. Matrix with the 'offset' diagonal filled with 'fill_value'.
     """
 
     if copy:

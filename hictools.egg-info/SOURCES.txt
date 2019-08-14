@@ -1,0 +1,15 @@
+README.md
+setup.py
+hictools/__init__.py
+hictools/api.py
+hictools/cli.py
+hictools/compartment.py
+hictools/peaks.py
+hictools/tad.py
+hictools/utils.py
+hictools.egg-info/PKG-INFO
+hictools.egg-info/SOURCES.txt
+hictools.egg-info/dependency_links.txt
+hictools.egg-info/entry_points.txt
+hictools.egg-info/requires.txt
+hictools.egg-info/top_level.txt

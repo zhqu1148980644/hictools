@@ -1,0 +1,4 @@
+
+        [console_scripts]
+        hictools=hictools.cli:cli
+    

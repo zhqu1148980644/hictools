@@ -1,4 +1,4 @@
-name: hicpipeline
+name: hictools
 channels:
     - conda-forge
     - bioconda
@@ -18,15 +18,6 @@ dependencies:
     - pairtools
     - cooler
     - pip:
-        - cython
-        - numpy
-        - scipy
-        - pandas
-        - matplotlib
         - multiqc
         - decorator >= 4.1.0
-        - ray
-        - scikit-learn
-        - statsmodels
-        - pomegranate
 

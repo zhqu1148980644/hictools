@@ -1,7 +1,8 @@
 #!/usr/bin/env nextflow
 if (!params.get('raw_reads', "")) {
-    template = file("$baseDir" + "/config_template.yml") 
-    template.copyTo("./")
+    def templateString = params.config_template
+    def template = file('config_tempalte.yml')
+    template.write(templateString)
     exit 0, """Please specify your configuration file. e.g
                > nextflow run zhqu1148980644/hictools -params-file your_config.yml -resume  
                You can find a configuration template in current directory.             

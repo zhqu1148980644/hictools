@@ -2,15 +2,17 @@
 Tools for Loop-detection analysis.
 """
 # TODO(zhongquan789@gmail.com) implement APA and multi-resolution combination methods.
+# TODO(zhongquan789@126.com) find a way to automatically choose p and w used in hiccups.
 # Possible way:
 #    find highly enriched pixels(Need carefully consideration for the effect of decay.)
 #    Use aggregate analysis to find a decaying pattern as a reference for automatically chossing p and w.
 #    This should be fast.
+# TODO(zhongquan789@126.com) implement cloops algorithm.
 
+from collections import OrderedDict
 from collections import defaultdict
 from functools import partial
-from typing import Tuple, Union, Iterable
-from collections import OrderedDict
+from typing import Tuple, Iterable, List, Callable
 
 import numpy as np
 import pandas as pd
@@ -20,11 +22,11 @@ from scipy.spatial.distance import euclidean
 from sklearn.cluster import DBSCAN
 from statsmodels.stats import multitest
 
-from utils import remove_small_gap, suppress_warning, mask_array, index_array
+from .utils import remove_small_gap, suppress_warning, mask_array, index_array
 
 
 def extend_gap(gap_mask: np.ndarray, extend_width: int, remove_single=True) -> np.ndarray:
-    """Create indexs of new mask which is  extended from original gap mask for a certain width.
+    """Create indexs of new mask which are extended from original gap mask for a certain width.
 
     :param gap_mask: np.ndarray. True values represent gap regions.
     :param extend_width: int. Extending width in both ends of each gap region.
@@ -41,9 +43,9 @@ def extend_gap(gap_mask: np.ndarray, extend_width: int, remove_single=True) -> n
     return gap_mask
 
 
-def diff_kernel(new_kernels, old_kernels):
+def diff_kernel(new_kernels: Tuple[np.ndarray], old_kernels: Tuple[np.ndarray]):
     """Fetch the difference between two kernels to avoid the redundant computation.\n
-    Shape of old_kernel must smaller than that of new_kernel and old_kernel should be subset of new_kernel.
+    Shape of old_kernel must smaller than that of new_kernel, thus old_kernel should be subset of new_kernel.
 
     :param new_kernels: tuple. tuple of kernels.
     :param old_kernels: tuple. tuple of kernels.
@@ -74,7 +76,12 @@ def lambda_chunks(lambda_array: np.ndarray,
     """
     min_value = np.min(lambda_array)
     num = int(np.ceil(np.log2(np.max(lambda_array)) / exponent) + 1)
-    lambda_values = np.logspace(0, (num - 1) * exponent, num, base=base)
+    lambda_values = np.logspace(
+        start=0,
+        stop=(num - 1) * exponent,
+        num=num,
+        base=base
+    )
 
     for start, end in zip(lambda_values[:-1], lambda_values[1:]):
         if not full and min_value > end:
@@ -85,7 +92,7 @@ def lambda_chunks(lambda_array: np.ndarray,
 
 def fetch_regions(p: int,
                   w: int,
-                  kernel: bool = False) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+                  kernel: bool = False) -> Tuple[np.ndarray]:
     """Return coordinates of pixels whithin four regions: donut region, vertical, horizontal, lower_left region.
 
     :param p: int. radius of center square.
@@ -125,22 +132,22 @@ def fetch_regions(p: int,
         return regions
 
 
-def cluster(indices: np.ndarray, contacts: np.ndarray, initial_dis: float):
+def cluster(indices: Tuple[np.ndarray, np.ndarray], contacts: np.ndarray, initial_dis: float):
     """Use DBSCAN followed by greedy clustering to merge pixels into confidant peaks.
 
-    :param indices: np.ndarray. coordinates of all peaks. coordinates are represented by tuple of x and y. e.g (x ,y)
-    :param contacts: np.ndarray.
+    :param indices: np.ndarray. Coordinates of all pixels. The first(second) array represents x(y) coordinate of each pixel.
+    :param contacts: np.ndarray. Contacts(unnormed) counts of each pixel.
     :param initial_dis: float. Initial distance used for DBSCAN and greedy clustering.
-    :return: tuple. return merged peak indexs and infos(center coordinates and radius) of each peaks.
+    :return: tuple. return indexes and infos(center coordinates and radius) of each merged peak.
     """
 
-    def create_subpeaks(indexs, peaks):
-        sub_contacts = [(contacts[i], i) for i in indexs]
+    def create_subpeaks(indexs: np.ndarray, peaks: List[Tuple[int, int]]):
+        sub_contacts = [(contacts[i], i) for i in indexs.tolist()]
         sub_contacts.sort(reverse=True, key=lambda v: v[0])
         sub_peaks = [peaks[contact[1]] for contact in sub_contacts]
         return sub_peaks
 
-    def default_info(peak):
+    def default_info(peak: Tuple[int, int]):
         return peak[0], peak[1], initial_dis
 
     peaks = list(zip(*indices))
@@ -160,7 +167,8 @@ def cluster(indices: np.ndarray, contacts: np.ndarray, initial_dis: float):
     peaks_info = []
     for sub_peaks in clusters:
         merged_peaks, infos = greedy_cluster(sub_peaks, initial_dis)
-        peaks_index.extend(peak_to_index[sub_peaks[center_index]] for center_index in merged_peaks)
+        peaks_index.extend(peak_to_index[sub_peaks[center_index]]
+                           for center_index in merged_peaks)
         peaks_info.extend(infos)
 
     for index in np.where(labels == -1)[0]:
@@ -170,17 +178,17 @@ def cluster(indices: np.ndarray, contacts: np.ndarray, initial_dis: float):
     return peaks_index, np.array(peaks_info).T
 
 
-def greedy_cluster(peaks: list, initial_dis: float) -> Tuple[list, list]:
+def greedy_cluster(peaks: List[Tuple[int, int]], initial_dis: float) -> Tuple[list, list]:
     """Cluster pixels which are densely distributed in a certain region into a peak by using a greedy clustering method.
 
-    :param peaks:  list. coordinates of all peaks. coordinates are represented by tuple of x and y. e.g (x ,y)
+    :param peaks:  list. coordinates of all peaks. coordinates are represented by tuples of x and y. e.g (x ,y)
     :param initial_dis: Initital distance for consider pixels as neighbors of a peak center.
-    :return:  tuple. return merged peak indexs and infos(center coordinates and radius) of each peaks.
+    :return: tuple. return indexs and infos(center coordinates and radius) of all peaks.
     """
     record_dis = initial_dis
     initial_dis = max(initial_dis, 1.5)
 
-    def update_center_radius(indexs, new_index):
+    def update_center_radius(indexs: List[int], new_index: List[int]):
         """
 
         :param indexs:
@@ -239,13 +247,14 @@ def get_chunk_slices(length: int,
                      band_width: int,
                      height: int,
                      ov_length: int) -> Tuple[slice, slice]:
-    """
+    """Return slices of all chunks along the digonal that ensure the band region with specified width is fully covered.\n
+    Band region's left border is the main diagonal.
 
-    :param length:
-    :param band_width:
-    :param height:
-    :param ov_length:
-    :return:
+    :param length: int. The length of input square matrix.
+    :param band_width: int. Width of the band region.
+    :param height: int. Height of each chunk(submatrix).
+    :param ov_length: int. Number of overlapping bins of two adjacent chunk(submatrix) along the main diagonal.
+    :return: Tuple[slice, slice]. x,y slice of each chunk(submatrix).
     """
     band_width *= 2
     start = 0
@@ -261,17 +270,20 @@ def get_chunk_slices(length: int,
 
 def multiple_test(contact_array: np.ndarray,
                   lambda_array: np.ndarray,
-                  fdrs: tuple,
-                  sigs: tuple,
-                  method: str):
-    """
+                  fdrs: Tuple[float],
+                  sigs: Tuple[float],
+                  method: str) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Conduct poisson test on each pixel and multiple test correction for all tests.
 
-    :param contact_array:
-    :param lambda_array:
-    :param fdrs:
-    :param sigs:
-    :param method:
-    :return:
+    :param contact_array: np.ndarray. 1-d array contains observed contacts(number of counts) of all pixels.
+    :param lambda_array: np.ndarray. 2-d array contains lambdas(background) of all pixels.
+    'lambda_array.shape[0]' denotes the number of backgrounds and 'lambda_array.shape[1]' denotes the number of pixles.
+    :param fdrs: tuple. Tuple of fdrs to control the false discovery rate for each background.
+    Length of this tuple must equal to 'lambda_array.shape[0]'
+    :param sigs: tuple. Tuple of padjs threshold. Length of this tuple must equal to 'lambda_array.shape[0]'
+    :param method: str. Method used for multiple test. Supported methods see: statsmodels.stats.multitest.
+    :return: Tuple[pvals, padjs, rejects]. pvals and padjs are both 2-d ndarrays with the same shape as 'lambda_array'.
+    rejects is a 1-d Boolean array with shape of 'lambda_array.shape[1]', each value represents whether reject the null hypothesis.
     """
     num_test, len_test = lambda_array.shape
     pvals = np.full((num_test, len_test), 1, np.float)
@@ -285,58 +297,54 @@ def multiple_test(contact_array: np.ndarray,
                 continue
             poisson_model = stats.poisson(np.ones(chunk_size) * end)
             _pvals = 1 - poisson_model.cdf(contact_array[lamda_mask])
-            reject, _padjs, _, _ = multitest.multipletests(pvals=_pvals,
-                                                           alpha=fdrs[test_i],
-                                                           method=method)
-            rejects[test_i][lamda_mask] = reject & (_padjs <= sigs[test_i])
+            reject, _padjs, _, _ = multitest.multipletests(
+                pvals=_pvals,
+                alpha=fdrs[test_i],
+                method=method
+            )
+            rejects[test_i][lamda_mask] = reject
             padjs[test_i][lamda_mask] = _padjs
             pvals[test_i][lamda_mask] = _pvals
+
+    rejects = rejects & (padjs < np.array(sigs)[:, None])
 
     return pvals, padjs, rejects
 
 
-def additional_filtering(peaks,
-                         factors,
+def additional_filtering(peaks: tuple,
+                         factors: np.ndarray,
                          sum_qvalue: float = 0.02,
-                         single_fcs: Union[float, tuple] = (1.7, 1.5, 1.5, 1.75),
-                         double_fcs: Union[float, tuple] = (2, 0, 0, 2),
+                         single_fcs: tuple = (1.7, 1.5, 1.5, 1.75),
+                         double_fcs: tuple = (2, 0, 0, 2),
                          ignore_single_gap: bool = True):
+    """Post-filtering peaks after filtered by mulitple test and megred by clustering:
+        1. Remove peaks close to gap region(bad bins).\n
+        2. Remove singlet peaks with sums of four padjs lesser than 'sum_qvalues' .\n
+        3. Remove peaks with fold changes less than a given threshold in either one of four regions.\n
+        4. Retain peaks with fold changes over a given threshold in either one of four regions.\n
+
+    :param peaks: Tuple[np.ndarray, np.ndarray]. Tuple contains corrdinates of all peak.
+    :param factors: np.ndarray. ICE factors for detecting gaps(bad bins.). Bad bins should bed marked with np.nan.
+    :param sum_qvalue: float. Threshold for filtering those peaks with sum padjs of four regions lesser than a certain value.
+    :param single_fcs: tuple. Padjs threshold for each region. Valid peak's padjs should pass all four fold-change thresholds.
+    :param double_fcs: tuple. Padjs threshold for each region. Valid peak's padjs should pass either one of four fold-change thresholds.
+    :param ignore_single_gap: bool. If ignore small gaps when filtering peaks close to gap regions.
+    :return: np.ndarray. Boolean array of valid peaks passed all filtering.
     """
 
-    :param peaks:
-    :param factors:
-    :param sum_qvalue:
-    :param single_fcs:
-    :param double_fcs:
-    :param ignore_single_gap:
-    :return:
-    """
-
-    def fold_change_mask(contacts_array: np.ndarray,
-                         lambda_array: np.ndarray,
-                         single_fcs,
-                         double_fcs) -> np.ndarray:
+    def fold_change_mask(contact_array: np.ndarray,
+                         lambda_array: np.ndarray) -> np.ndarray:
+        """Return mask of valid peaks passed the enrichment fold changes filtering.
         """
-
-        :param contacts_array:
-        :param lambda_array:
-        :param single_fcs:
-        :param double_fcs:
-        :return:
-        """
-        single_fc_mask = np.all(contacts_array
+        single_fc_mask = np.all(contact_array
                                 >= lambda_array * np.array(single_fcs)[:, None], axis=0)
-        double_fc_mask = np.any(contacts_array
+        double_fc_mask = np.any(contact_array
                                 >= lambda_array * np.array(double_fcs)[:, None], axis=0)
 
         return single_fc_mask & double_fc_mask
 
-    def gap_mask(indices: tuple, factors) -> np.ndarray:
-        """
-
-        :param indices:
-        :param factors:
-        :return:
+    def gap_mask(indices: Tuple[np.ndarray, np.ndarray]) -> np.ndarray:
+        """Return mask of valid peaks away from gap regions.
         """
         gap_region = set(np.where(extend_gap(np.array(np.isnan(factors)), 1, ignore_single_gap))[0])
 
@@ -345,32 +353,25 @@ def additional_filtering(peaks,
 
     def singlet_mask(peak_info: np.ndarray,
                      padjs: np.ndarray,
-                     initial_dis: float,
-                     sum_qvalue):
-        """
-
-        :param peak_info:
-        :param padjs:
-        :param initial_dis:
-        :param sum_qvalue:
-        :return:
+                     initial_dis: float):
+        """Return mask of valid peaks with sum padjs of four regions greater than sum_qvalue threshold.
         """
         mask = peak_info[-1] == initial_dis
-        mask[mask] &= (padjs[-1][mask].sum() < sum_qvalue)
+        mask[mask] &= (padjs.sum(axis=0)[mask] < sum_qvalue)
         return ~mask
 
     indices, contact_array, lambda_array, pvals, padjs, peak_info = peaks
 
-    return gap_mask(indices, factors) \
-           & singlet_mask(peak_info, padjs, peak_info[-1].min(), sum_qvalue) \
-           & fold_change_mask(contact_array, lambda_array, double_fcs, single_fcs)
+    return gap_mask(indices) \
+           & singlet_mask(peak_info, padjs, peak_info[-1].min()) \
+           & fold_change_mask(contact_array, lambda_array)
 
 
-def build_results(peaks) -> pd.DataFrame:
-    """
+def build_results(peaks: tuple) -> pd.DataFrame:
+    """Aggregate peak-infos into a pd.DataFrame object.
 
-    :param peaks:
-    :return:
+    :param peaks: tuple. Tuple containing all infos related to peaks returned by find_peaks.
+    :return: pd.DataFrame.
     """
     indices, contacts_array, lambda_array, pvals, padjs, peak_info = peaks
     region_names = ['donut', 'horizontal', 'vertical', 'lower_left']
@@ -394,29 +395,33 @@ def build_results(peaks) -> pd.DataFrame:
     return pd.DataFrame(peaks)
 
 
-def calculate_lambda(expected,
-                     observed,
-                     row_factors,
-                     col_factors,
-                     kernels,
-                     band_width,
-                     outer_radius):
-    """
+def calculate_lambda(expected: np.ndarray,
+                     observed: np.ndarray,
+                     row_factors: np.ndarray,
+                     col_factors: np.ndarray,
+                     kernels: Tuple[np.ndarray],
+                     band_width: int,
+                     outer_radius: int,
+                     ignore_diags: int = 3) -> Tuple[tuple, np.ndarray]:
+    """Calculate lambda values(background) for each pixel in regions sepcified in kernels.
 
-    :param expected:
-    :param observed:
-    :param row_factors:
-    :param col_factors:
-    :param kernels:
-    :param band_width:
-    :param outer_radius:
-    :return:
+    :param expected: np.ndarray. 2-d ndarray represents expeceted(normed) matrix.
+    :param observed: np.ndarray. 2-d ndarray represents observed(normed) matrix.
+    :param row_factors: np.ndarray. 1-d ndarray represents ICE factors of each row in expected.
+    :param col_factors: np.ndarray. 1-d ndarray represents ICE factors of each column in expected.
+    :param kernels: Tuple[np.ndarray]. Each array(mask) represents a certain region that is used for computing
+    lambda(background) by summing all values within this region for each pixel.
+    :param band_width: int. Width of the band region.
+    :param outer_radius: int. The maximum radius among all kernels.
+    :param ignore_diags: int. Number of diagonals to ignore. Pixles within this region will not be counted in available contacts.
+    :return: Tuple[tuple, np.ndarray]. The first tuple contains indices of all available pixels, and the second ndarray
+    contains the corresponding lambdas in all regions specified in kernels.
     """
     x, y = observed.nonzero()
     dis = y - x
     mask = (dis <= (band_width - 2 * outer_radius)) \
            & (x < (band_width - outer_radius)) \
-           & (dis >= 2) \
+           & (dis >= ignore_diags - 1) \
            & (x >= outer_radius)
     x, y = x[mask], y[mask]
 
@@ -435,23 +440,27 @@ def calculate_lambda(expected,
 
 
 @ray.remote
-def calculate_chunk(expected_fetcher,
-                    observed_fetcher,
-                    factors_fetcher,
-                    chunk,
-                    kernels,
-                    band_width,
-                    outer_radius):
-    """
+def calculate_chunk(expected_fetcher: Callable[[str, tuple], np.ndarray],
+                    observed_fetcher: Callable[[str, tuple], np.ndarray],
+                    factors_fetcher: Callable[[str, tuple], tuple],
+                    chunk: Tuple[str, Tuple[slice, slice]],
+                    kernels: Tuple[np.ndarray],
+                    band_width: int,
+                    outer_radius: int) -> Tuple[tuple, np.ndarray, np.ndarray]:
+    """For a given chunk, calculate lambda values and contact(true counts) values of each pixel in regions specified in kernels.
 
-    :param expected_fetcher:
-    :param observed_fetcher:
-    :param factors_fetcher:
-    :param chunk:
-    :param kernels:
-    :param band_width:
-    :param outer_radius:
-    :return:
+    :param expected_fetcher: Callable[[str, tuple], np.ndarray]. Callable object that return a 2-d submatrix
+    representing expected matrix in a certain region.
+    :param observed_fetcher: Callable[[str, tuple], np.ndarray]. Callable object that return a 2-d submatrix
+    representing observed matrix in a certain region.
+    :param factors_fetcher: Callable[[str, tuple], tuple]. Callable object that return a tuple of 1-d ndarray
+    representing ICE factors of row and column in a certain region.
+    :param chunk: Tuple[str, Tuple[slice, slice]]. Tuple used as arguments for fetching data by using fetcher functions.
+    :param kernels: Tuple[np.ndarray]. Each array(mask) represents a certain region that is used for computing
+    lambda(background) by summing all values within this region for each pixel.
+    :param band_width: int. Width of the band region.
+    :param outer_radius: int. The maximum radius among all kernels.
+    :return: Tuple[indices, lambdas, contacts]. coordinates, lambda values and contact values of all valid pixels.
     """
     key, slices = chunk
     observed = observed_fetcher(key, slices)
@@ -462,13 +471,15 @@ def calculate_chunk(expected_fetcher,
     row_factors = 1 / row_factors
     col_factors = 1 / col_factors
 
-    indices, lambda_array = calculate_lambda(expected,
-                                             observed,
-                                             row_factors,
-                                             col_factors,
-                                             kernels,
-                                             band_width,
-                                             outer_radius)
+    indices, lambda_array = calculate_lambda(
+        expected=expected,
+        observed=observed,
+        row_factors=row_factors,
+        col_factors=col_factors,
+        kernels=kernels,
+        band_width=band_width,
+        outer_radius=outer_radius
+    )
 
     if indices[0].size == 0:
         return (np.array([]), np.array([])), np.array([]), np.array([])
@@ -484,17 +495,18 @@ def calculate_chunk(expected_fetcher,
 
 @ray.remote
 @suppress_warning
-def find_peaks(backgrounds,
-               test_fn,
-               cluster_fn,
-               filter_fn) -> tuple:
-    """
+def find_peaks(backgrounds: list,
+               test_fn: callable,
+               cluster_fn: callable,
+               filter_fn: callable) -> tuple:
+    """Find peaks from pixels with pre-computed lambdas and contacts by applying multiple test, clustering
+    and additional filtering.
 
-    :param backgrounds:
-    :param test_fn:
-    :param cluster_fn:
-    :param filter_fn:
-    :return:
+    :param backgrounds: list. Each element is a tuple containing indices, lambdas and contacts of pixels.
+    :param test_fn: callable. Used for applying statistical test for all pixels.
+    :param cluster_fn: callable. Used for merging(clustering pixels into peaks.
+    :param filter_fn: callable. Used for filtering peaks find by clustering.
+    :return: tuple. Tuple of arrays.
     """
     # load data from ray store
     x_indice = []
@@ -534,14 +546,13 @@ def find_peaks(backgrounds,
 
 
 @suppress_warning(warning_msg=ResourceWarning)
-def hiccups(expected_fetcher: callable,
-            observed_fetcher: callable,
-            factors_fetcher: callable,
-            chunks: Iterable,
-            kernels: tuple,
+def hiccups(expected_fetcher: Callable[[str, tuple], np.ndarray],
+            observed_fetcher: Callable[[str, tuple], np.ndarray],
+            factors_fetcher: Callable[[str, tuple], np.ndarray],
+            chunks: Iterable[Tuple[str, tuple]],
+            kernels: Tuple[np.ndarray],
             num_cpus: int = 20,
             max_dis: int = 1000000,
-            outer_radius: int = 5,
             resolution: int = 10000,
             method: str = 'fdr_bh',
             fdrs: tuple = (0.01, 0.01, 0.01, 0.01),
@@ -549,63 +560,83 @@ def hiccups(expected_fetcher: callable,
             single_fcs: tuple = (1.7, 1.5, 1.5, 1.75),
             double_fcs: tuple = (2, 0, 0, 2),
             ignore_single_gap: bool = True,
-            bin_index: bool = True):
-    """
+            bin_index: bool = True) -> pd.DataFrame:
+    """Call peaks using hiccups algorithm.
 
-    :param expected_fetcher:
-    :param observed_fetcher:
-    :param factors_fetcher:
-    :param chunks:
-    :param kernels:
-    :param num_cpus:
-    :param max_dis:
-    :param outer_radius:
-    :param resolution:
-    :param method:
-    :param fdrs:
-    :param sigs:
-    :param single_fcs:
-    :param double_fcs:
-    :param ignore_single_gap:
-    :param bin_index:
-    :return:
+    :param expected_fetcher: Callable[[str, tuple], np.ndarray]. Callable object that return a 2-d submatrix
+    representing expected matrix for each chunk(region).
+    :param observed_fetcher: Callable[[str, tuple], np.ndarray]. Callable object that return a 2-d submatrix
+    representing observed matrix for each chunk(region).
+    :param factors_fetcher: Callable[[str, tuple], tuple]. Callable object that return a tuple of 1-d ndarray
+    representing ICE factors of row and column for each chunk(region).
+    :param chunks: Iterable[Tuple[str, tuple]]. Only chunk regions in chunks will be examined for detecting peaks.
+    Elements of chunks will send to fetcher functions as arguments to fetch corresponding datas required for detecing peaks.
+    :param kernels: Tuple[np.ndarray]. Each array(mask) represents a certain region that is used for computing
+    lambda(background) by summing all values within this region for each pixel.
+    :param num_cpus: int. Number of cores to call peaks. Calculation based on chunks and process of find peaks based
+    on different chromosome will run in parallel.
+    :param max_dis: int. Max distance of loops to find. Due to the natural property of loops(distance less than 8M) and
+    computation bound of hiccups algorithm, hiccups algorithm are applied only in a band region over the main digonal
+    to speed up the whole process.
+    :param resolution: int. Resolution of input data to find peaks. This is used for setting initial distance in clustering step.
+    :param method: str. Method used for multiple test. Supported methods see: statsmodels.stats.multitest.
+    :param fdrs: tuple. Tuple of fdrs to control the false discovery rate for each background.
+    :param sigs: tuple. Tuple of padjs thresholds for each background.
+    :param single_fcs: tuple. Padjs threshold for each region. Valid peak's padjs should pass all four fold-hange thresholds.
+    :param double_fcs: tuple. Padjs threshold for each region. Valid peak's padjs should pass either one of four fold-change thresholds.
+    :param ignore_single_gap: bool. If ignore small gaps when filtering peaks close to gap regions.
+    :param bin_index: bool. Return actual genomic positions of peaks if set to False.
+    :return: pd.DataFrame.
     """
     if not ray.is_initialized():
         ray.init(num_cpus=num_cpus)
 
     initial_dis = max(20000 // resolution, 1)
+    outer_radius = (max(kernel.shape[0] for kernel in kernels) - 1) // 2
     backgrounds_dict = defaultdict(list)
     for chunk in chunks:
         key = chunk[0]
-        backgrounds_dict[key].append(calculate_chunk.remote(expected_fetcher,
-                                                            observed_fetcher,
-                                                            factors_fetcher,
-                                                            chunk,
-                                                            kernels,
-                                                            max_dis // resolution,
-                                                            outer_radius))
+        backgrounds_dict[key].append(
+            calculate_chunk.remote(
+                expected_fetcher=expected_fetcher,
+                observed_fetcher=observed_fetcher,
+                factors_fetcher=factors_fetcher,
+                chunk=chunk,
+                kernels=kernels,
+                band_width=max_dis // resolution,
+                outer_radius=outer_radius
+            )
+        )
 
-    test_fn = partial(multiple_test,
-                      fdrs=fdrs,
-                      sigs=sigs,
-                      method=method)
+    test_fn = partial(
+        multiple_test,
+        fdrs=fdrs,
+        sigs=sigs,
+        method=method
+    )
 
-    cluster_fn = partial(cluster,
-                         initial_dis=initial_dis)
+    cluster_fn = partial(
+        cluster,
+        initial_dis=initial_dis
+    )
 
-    filter_fn = partial(additional_filtering,
-                        double_fcs=double_fcs,
-                        single_fcs=single_fcs,
-                        ignore_single_gap=ignore_single_gap)
+    filter_fn = partial(
+        additional_filtering,
+        double_fcs=double_fcs,
+        single_fcs=single_fcs,
+        ignore_single_gap=ignore_single_gap
+    )
 
     peaks_dict = OrderedDict()
     full_slices = (slice(0, None), slice(0, None))
-    for key, backgounds in backgrounds_dict.items():
+    for key, backgrounds in backgrounds_dict.items():
         _filter_fn = partial(filter_fn, factors=factors_fetcher(key, full_slices)[0])
-        peaks_dict[key] = find_peaks.remote(backgounds,
-                                            test_fn=test_fn,
-                                            cluster_fn=cluster_fn,
-                                            filter_fn=_filter_fn)
+        peaks_dict[key] = find_peaks.remote(
+            backgrounds=backgrounds,
+            test_fn=test_fn,
+            cluster_fn=cluster_fn,
+            filter_fn=_filter_fn
+        )
     chroms_list = []
     for key in peaks_dict.keys():
         peaks_dict[key] = build_results(ray.get(peaks_dict[key]))
@@ -619,9 +650,29 @@ def hiccups(expected_fetcher: callable,
         for col in ['i', 'j', 'center_i', 'center_j', 'radius']:
             peaks_df[col] *= resolution
 
-    ray.shutdown()
-
     return peaks_df
+
+
+def expected_fetcher(key, slices, expected_dict):
+    if isinstance(expected_dict[key], ray._raylet.ObjectID):
+        expected_dict[key] = ray.get(expected_dict[key])
+    return expected_dict[key][slices]
+
+
+def observed_fetcher(key, slices, cool, start_dict):
+    row_st, row_ed = slices[0].start + start_dict[key], slices[0].stop + start_dict[key]
+    col_st, col_ed = slices[1].start + start_dict[key], slices[1].stop + start_dict[key]
+    return cool.matrix()[slice(row_st, row_ed), slice(col_st, col_ed)]
+
+
+def factors_fetcher(key, slices, factor_dict):
+    return factor_dict[key][slices[0]], factor_dict[key][slices[1]]
+
+
+def chunks_gen(chromsizes, band_width, height, ov_length):
+    for chrom, size in chromsizes.items():
+        for slices in get_chunk_slices(size, band_width, height, ov_length):
+            yield chrom, slices
 
 
 if __name__ == "__main__":

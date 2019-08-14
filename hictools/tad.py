@@ -3,14 +3,15 @@ Tools for topological associated domain analysis.
 """
 
 from collections import namedtuple
+from typing import Union
 
 import cooler
-import numpy as np
-from scipy import sparse
 import matplotlib.pyplot as plt
+import numpy as np
 from pomegranate import NormalDistribution, HiddenMarkovModel, GeneralMixtureModel, State
+from scipy import sparse
 
-from utils import mask_array, remove_small_gap, suppress_warning, CPU_CORE
+from .utils import mask_array, remove_small_gap, suppress_warning, CPU_CORE
 
 # background state
 STATES = ('start', 'downstream', 'upstream', 'end')
@@ -31,34 +32,38 @@ def plot_tads(domains: list):
         plt.plot(np.arange(st, ed), np.arange(st, ed), color='yellow')
 
 
-def standard_di(di_up, di_down):
-    """
+def standard_di(contacts_up, contacts_down):
+    """Compute directionality index described in:
 
-    :param di_up:
-    :param di_down:
-    :return:
+    Jesse R.Dixon 2012. Topological domains in mammalian genomes identified by analysis of chromatin interactions.
+
+    :param contacts_up: np.ndarray. Upstream contacts for each bin.
+    :param contacts_down: np.ndarray. Downstream contacts for each bin.
+    :return: np.ndarray. 1-d array representing directionality index.
     """
-    di_up = di_up.sum(axis=1)
-    di_down = di_down.sum(axis=1)
-    expected = (di_up + di_down) / 2.0
-    di_array = np.sign(di_down - di_up) * \
-               ((di_up - expected) ** 2 + (di_down - expected) ** 2) / expected
+    contacts_up = contacts_up.sum(axis=1)
+    contacts_down = contacts_down.sum(axis=1)
+    expected = (contacts_up + contacts_down) / 2.0
+    di_array = np.sign(contacts_down - contacts_up) * \
+               ((contacts_up - expected) ** 2 + (contacts_down - expected) ** 2) / expected
 
     return di_array
 
 
-def adap_di(di_up, di_down):
-    """
+def adap_di(contacts_up, contacts_down):
+    """Compute directionality index described in:\n
+    Xiao-Tao Wang 2017.HiTAD: Detecting the structural and functional hierarchies of topologically associating
+    domains from chromatin interactions.
 
-    :param di_up:
-    :param di_down:
-    :return:
+    :param contacts_up: np.ndarray. Upstream contacts for a given bin.
+    :param contacts_down: np.ndarray. Downstream contacts for a given bin.
+    :return: np.ndarray. 1-d array representing directionality index.
     """
-    window_size = di_up.shape[1]
-    mean_up = di_up.mean(axis=1)
-    mean_down = di_down.mean(axis=1)
-    var_up = np.square(di_up - mean_up[:, None]).sum(axis=1)
-    var_down = np.square(di_down - mean_down[:, None]).sum(axis=1)
+    window_size = contacts_up.shape[1]
+    mean_up = contacts_up.mean(axis=1)
+    mean_down = contacts_down.mean(axis=1)
+    var_up = np.square(contacts_up - mean_up[:, None]).sum(axis=1)
+    var_down = np.square(contacts_down - mean_down[:, None]).sum(axis=1)
     di_array = (mean_down - mean_up) / \
                np.sqrt((var_up + var_down) / (window_size * (window_size - 1)))
 
@@ -72,19 +77,22 @@ DI_METHOD_MAP = {
 
 
 @suppress_warning
-def di_score(matrix: sparse.csr_matrix,
+def di_score(matrix: Union[np.ndarray, sparse.csr_matrix],
              window_size: int = 10,
              ignore_diags: int = 3,
              method: str = 'standard',
              fetch_window: bool = False):
-    """
+    """Compute directionality index of a given 2d ndarray.\n
+    For each bin in the main digonal, directionality index is calculated based on two arrays with length of windowsize: \n
+    The upwards(upstream) vertical array start from this bin and the eastwards(downstream) horizontal array start from this bin.\n
+    See function listed in 'DI_METHOD_MAP' for detailed description.
 
-    :param matrix:
-    :param window_size:
-    :param ignore_diags:
-    :param method:
-    :param fetch_window:
-    :return:
+    :param matrix: np.ndarray/sparse.csr_matrix. The input matrix to calculate di score.
+    :param window_size: int. length of upstream array and downstream array.
+    :param ignore_diags: int. The number of diagonals to ignore.
+    :param method: str. Method for computing directionality index. 'standard' and 'adptive' are supported by now.
+    :param fetch_window: bool. If set to True, return np.hstack([contacts_up. contacts_down])
+    :return: np.ndarray. Rerturn directionality index array if 'fetch_window' is False else return array of up/down stream contacts.
     """
     chrom_len = matrix.shape[0]
     x, y = matrix.nonzero()
@@ -100,44 +108,40 @@ def di_score(matrix: sparse.csr_matrix,
         x, y, values = mask_array(~np.isnan(values), x, y, values)
         dis = y - x
 
-        di_up = np.zeros((chrom_len, window_size))
-        di_down = np.zeros((chrom_len, window_size))
+        contacts_up = np.zeros((chrom_len, window_size), dtype=matrix.dtype)
+        contacts_down = np.zeros((chrom_len, window_size), dtype=matrix.dtype)
         for shift in range(ignore_diags, max_len):
             window_pos = shift - ignore_diags
             mask = dis == shift
             tmp_x, tmp_values = mask_array(mask, x, values)
-            di_down[tmp_x, window_pos] = tmp_values
-            di_up[tmp_x + shift, window_pos] = tmp_values
-        di_up[:max_len, :] = 0
-        di_down[:max_len, :] = 0
+            contacts_down[tmp_x, window_pos] = tmp_values
+            contacts_up[tmp_x + shift, window_pos] = tmp_values
+        contacts_up[:max_len, :] = 0
+        contacts_down[:max_len, :] = 0
 
     elif isinstance(window_size, np.ndarray) \
             and (window_size.size == chrom_len):
-        # TODO(zhongquan789@gmail.com) Suits for multi-windowsize
-        di_up = None
-        di_down = None
+        # TODO(zhongquan789@gmail.com) Suits for multi-windowsize(used for di in tadlib).
+        contacts_up = None
+        contacts_down = None
 
     else:
         raise ValueError('window_size should either be an integer or a np.ndarray.')
 
     if not fetch_window:
-        return DI_METHOD_MAP[method](di_up, di_down)
+        return DI_METHOD_MAP[method](contacts_up, contacts_down)
     else:
-        results = np.zeros(shape=chrom_len,
-                           dtype=[('di_up', np.int), ('di_down', np.int)])
-        results['di_up'] = di_up
-        results['di_down'] = di_down
-        return results
+        return np.hstack([contacts_up, contacts_down])
 
 
 @suppress_warning
-def insulation_score(matrix,
+def insulation_score(matrix: Union[np.ndarray, sparse.csr_matrix],
                      window_size: int = 50,
                      ignore_diags: int = 1,
                      normalize: bool = True,
                      count: bool = False) -> np.ndarray:
-    """
-    Calculate insulation score for each chromosome.
+    """Calculate insulation score of a given 2d ndarray(chromosome) described in:\n
+    Emily Crane 2015. Condensin-driven remodelling of X chromosome topology during dosage compensation.\n
     :param matrix: np.ndarray/scipy.sparse.csr_matrix. Interaction matrix representing a hic contacts.
     :param window_size: int. Diameter of square in which contacts are summed along the diagonal.
     :param ignore_diags: int. Number of diagonal to ignore, This values should be >= 1 which means ignore main diagonal.
@@ -156,7 +160,7 @@ def insulation_score(matrix,
         x, y, values = mask_array(~np.isnan(values), x, y, values)
         dis = y - x
 
-        insu_score = np.zeros(chrom_len, dtype=np.float)
+        insu_score = np.zeros(chrom_len, dtype=matrix.dtype)
         insu_score[:window_size] = np.nan
         insu_score[chrom_len - window_size:] = np.nan
         counts = np.zeros(chrom_len, dtype=np.int)
@@ -178,7 +182,7 @@ def insulation_score(matrix,
         insu_score /= counts
     # Store counts only when parameter count is set to True.
     elif isinstance(matrix, np.ndarray):
-        insu_score = np.full(chrom_len, np.nan, dtype=np.float)
+        insu_score = np.full(chrom_len, np.nan, dtype=matrix.dtype)
         if count:
             counts = np.zeros(chrom_len, dtype=np.int)
         diamond_mask = np.full((window_size, window_size), True)
@@ -196,8 +200,10 @@ def insulation_score(matrix,
         insu_score = np.log2(insu_score / np.nanmean(insu_score))
 
     if count:
-        results = np.zeros(shape=chrom_len,
-                           dtype=[('insu_score', np.float), ('counts', np.int)])
+        results = np.zeros(
+            shape=chrom_len,
+            dtype=[('insu_score', np.float), ('counts', np.int)]
+        )
         results['insu_score'] = insu_score
         results['counts'] = counts
         return results
@@ -206,7 +212,7 @@ def insulation_score(matrix,
 
 
 def boundary_strength(insu_score: np.ndarray) -> np.ndarray:
-    # TODO(zhongquan789@gmail.com) implement boundary strength
+    # TODO(zhongquan789@gmail.com) Call doundary from insulation score.
     pass
 
 
@@ -357,8 +363,14 @@ def train_hmm(clr: cooler.Cooler, mix_num: int = 3, discore_fn=di_score):
     train_data = []
     for chrom_di in di_dict.values():
         train_data.extend(di for di in chrom_di.values())
-    model.fit(train_data, algorithm='baum-welch',
-              max_iterations=10000, stop_threshold=1e-5, n_jobs=CPU_CORE - 5, verbose=False)
+    model.fit(
+        train_data,
+        algorithm='baum-welch',
+        max_iterations=10000,
+        stop_threshold=1e-5,
+        n_jobs=CPU_CORE - 5,
+        verbose=False
+    )
 
     return model
 

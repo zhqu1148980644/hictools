@@ -1,0 +1,13 @@
+click
+cython
+numpy
+scipy
+pandas
+matplotlib
+decorator
+ray
+scikit-learn
+statsmodels
+pomegranate
+cooler
+twine
