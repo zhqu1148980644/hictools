@@ -2,4 +2,4 @@
 .git
 build
 dist
-*egg-info
+hictools.egg-info

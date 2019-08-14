@@ -18,7 +18,7 @@ URL = 'https://github.com/zhqu1148980644/hictools'
 EMAIL = 'zhongquan789@gmail.com'
 AUTHOR = 'BAKEZQ'
 REQUIRES_PYTHON = '>=3.6.0'
-VERSION = '0.0.1'
+VERSION = '0.0.2'
 
 # The rest you shouldn't have to touch too much :)
 # ------------------------------------------------

@@ -709,8 +709,14 @@ process mcool_to_features {
     set key, file("*") into features
     
     script:
+    cool_100k = "${mcool}::/resolutions/100000"
+    cool_10k = "${mcool}::/resolutions/10000"
     (sample, tags) = values(key)
     """
-    python $baseDir/hictools/cli.py extract-features --nproc 20 ${mcool}
+    hictools compartment ${cool_100k} ${sample}_100k_compartments.bed
+    hictools expected ${cool_10k} ${sample}_10k_expected.bed
+    hictools peaks call-by-hiccups ${cool_10k} ${sample}_10k_peaks.bed
+    hictools tad di-score ${cool_10k} ${sample}_10k_discore.bed
+    hictools tad insu-score ${cool_10k} ${sample}_10k_insuscore.bed
     """
 }
