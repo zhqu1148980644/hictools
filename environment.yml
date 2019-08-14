@@ -20,4 +20,4 @@ dependencies:
     - pip:
         - multiqc
         - decorator >= 4.1.0
-        - 
+        - hictools
