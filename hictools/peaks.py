@@ -362,9 +362,9 @@ def additional_filtering(peaks: tuple,
 
     indices, contact_array, lambda_array, pvals, padjs, peak_info = peaks
 
-    return gap_mask(indices) \
-           & singlet_mask(peak_info, padjs, peak_info[-1].min()) \
-           & fold_change_mask(contact_array, lambda_array)
+    return (gap_mask(indices)
+            & singlet_mask(peak_info, padjs, peak_info[-1].min())
+            & fold_change_mask(contact_array, lambda_array))
 
 
 def build_results(peaks: tuple) -> pd.DataFrame:
@@ -376,11 +376,11 @@ def build_results(peaks: tuple) -> pd.DataFrame:
     indices, contacts_array, lambda_array, pvals, padjs, peak_info = peaks
     region_names = ['donut', 'horizontal', 'vertical', 'lower_left']
     num_region = len(region_names)
-    col_names = ['i', 'j', 'ob'] \
-                + ['ex_' + region for region in region_names] \
-                + ['pval_' + region for region in region_names] \
-                + ['padj_' + region for region in region_names] \
-                + ['center_i', 'center_j', 'radius']
+    col_names = (['i', 'j', 'ob']
+                 + ['ex_' + region for region in region_names]
+                 + ['pval_' + region for region in region_names]
+                 + ['padj_' + region for region in region_names]
+                 + ['center_i', 'center_j', 'radius'])
 
     dtypes = [np.int] * 3 + [np.float] * (len(col_names) - 3)
     peaks = np.zeros(shape=contacts_array.size,
@@ -419,10 +419,10 @@ def calculate_lambda(expected: np.ndarray,
     """
     x, y = observed.nonzero()
     dis = y - x
-    mask = (dis <= (band_width - 2 * outer_radius)) \
-           & (x < (band_width - outer_radius)) \
-           & (dis >= ignore_diags - 1) \
-           & (x >= outer_radius)
+    mask = ((dis <= (band_width - 2 * outer_radius))
+            & (x < (band_width - outer_radius))
+            & (dis >= ignore_diags - 1)
+            & (x >= outer_radius))
     x, y = x[mask], y[mask]
 
     ratio_array = np.full((len(kernels), x.size), 0, dtype=np.float)
@@ -431,10 +431,10 @@ def calculate_lambda(expected: np.ndarray,
         ex_sum = ndimage.convolve(expected, kernel)
         ratio_array[index] = (ob_sum / ex_sum)[(x, y)]
 
-    lambda_array = ratio_array \
-                   * expected[(x, y)] \
-                   * row_factors[x] \
-                   * col_factors[y]
+    lambda_array = (ratio_array
+                    * expected[(x, y)]
+                    * row_factors[x]
+                    * col_factors[y])
 
     return (x, y), lambda_array
 
@@ -484,9 +484,9 @@ def calculate_chunk(expected_fetcher: Callable[[str, tuple], np.ndarray],
     if indices[0].size == 0:
         return (np.array([]), np.array([])), np.array([]), np.array([])
     else:
-        contacts_array = observed[indices] \
-                         * row_factors[indices[0]] \
-                         * col_factors[indices[1]]
+        contacts_array = (observed[indices]
+                          * row_factors[indices[0]]
+                          * col_factors[indices[1]])
 
         true_indices = (indices[0] + slices[0].start, indices[1] + slices[1].start)
 

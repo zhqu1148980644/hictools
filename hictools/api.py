@@ -249,9 +249,9 @@ class ChromMatrix(object):
         observed = self._observed
         if not balance:
             observed = observed.copy()
-            observed.data = observed.data \
-                            / self._weights[observed.row] \
-                            / self._weights[observed.col]
+            observed.data = (observed.data
+                             / self._weights[observed.row]
+                             / self._weights[observed.col])
         if sparse:
             observed = observed.copy() if (copy and balance) else observed
         else:

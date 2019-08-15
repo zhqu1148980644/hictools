@@ -273,8 +273,9 @@ def remove_small_gap(gap_mask: np.ndarray, gap_size: int = 1) -> np.ndarray:
     gap_indexs = np.where(gap_mask)[0]
     single_gap = []
     for i in range(1, len(gap_indexs) - 1):
-        if (gap_indexs[i] != (gap_indexs[i - 1] + 1)) \
-                and (gap_indexs[i] != (gap_indexs[i + 1] - 1)):
+        adjacent_f = gap_indexs[i] == (gap_indexs[i - 1] + 1)
+        adjacent_b = gap_indexs[i] == (gap_indexs[i + 1] - 1)
+        if not (adjacent_f or adjacent_b):
             single_gap.append(gap_indexs[i])
         if gap_indexs[0] != (gap_indexs[1] - 1):
             single_gap.append(gap_indexs[0])

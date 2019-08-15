@@ -78,6 +78,7 @@ class UploadCommand(Command):
         self.status('Pushing git tags…')
         os.system('git tag v{0}'.format(about['__version__']))
         os.system('git push --tags')
+        os.system('rm build dist {0}.egg-info -rf'.format(NAME))
 
         sys.exit()
 
@@ -102,8 +103,7 @@ setup(
     entry_points='''
         [console_scripts]
         hictools=hictools.cli:cli
-    '''
-    ,
+    ''',
     # extras_require=EXTRAS,
     include_package_data=True,
     license='MIT',
@@ -121,5 +121,4 @@ setup(
     cmdclass={
         'upload': UploadCommand,
     },
-    
 )

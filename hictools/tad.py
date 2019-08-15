@@ -44,8 +44,9 @@ def standard_di(contacts_up, contacts_down):
     contacts_up = contacts_up.sum(axis=1)
     contacts_down = contacts_down.sum(axis=1)
     expected = (contacts_up + contacts_down) / 2.0
-    di_array = np.sign(contacts_down - contacts_up) * \
-               ((contacts_up - expected) ** 2 + (contacts_down - expected) ** 2) / expected
+    di_array = (np.sign(contacts_down - contacts_up) *
+                ((contacts_up - expected) ** 2 + (contacts_down - expected) ** 2)
+                / expected)
 
     return di_array
 
@@ -64,8 +65,8 @@ def adap_di(contacts_up, contacts_down):
     mean_down = contacts_down.mean(axis=1)
     var_up = np.square(contacts_up - mean_up[:, None]).sum(axis=1)
     var_down = np.square(contacts_down - mean_down[:, None]).sum(axis=1)
-    di_array = (mean_down - mean_up) / \
-               np.sqrt((var_up + var_down) / (window_size * (window_size - 1)))
+    di_array = ((mean_down - mean_up) /
+                np.sqrt((var_up + var_down) / (window_size * (window_size - 1))))
 
     return di_array
 
@@ -99,10 +100,10 @@ def di_score(matrix: Union[np.ndarray, sparse.csr_matrix],
     dis = y - x
     if isinstance(window_size, int):
         max_len = ignore_diags + window_size
-        available = (dis >= ignore_diags) \
-                    & (dis < max_len) \
-                    & (x >= max_len - 1) \
-                    & (y <= chrom_len - max_len)
+        available = ((dis >= ignore_diags)
+                     & (dis < max_len)
+                     & (x >= max_len - 1)
+                     & (y <= chrom_len - max_len))
         x, y = mask_array(available, x, y)
         values = np.array(matrix[x, y]).ravel()
         x, y, values = mask_array(~np.isnan(values), x, y, values)
@@ -308,9 +309,9 @@ def call_domain(path: str, min_size: int = 5) -> tuple:
         part_len = len(part)
         last_start = cur_start
         cur_start += part_len + 2
-        if cur_start \
-                and (part_len + 2 > min_size) \
-                and (cur_start <= max_len):
+        if (cur_start
+                and (part_len + 2 > min_size)
+                and (cur_start <= max_len)):
             yield (last_start - 1, last_start + part_len + 2)
 
 

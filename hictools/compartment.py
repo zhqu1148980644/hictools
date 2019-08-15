@@ -174,10 +174,10 @@ def corr_sorter(chrom_matrix, eigvecs: list, balance: bool = True, ignore_diags:
         diverse = np.abs(np.min(component)) / np.max(component)
         coma = component > 0
         ratio = len(np.where(coma)[0]) / len(np.where(~coma)[0])
-        if (diverse > 10) \
-                or (diverse < 0.1) \
-                or (ratio > 15) \
-                or (ratio < 1 / 15):
+        if ((diverse > 10)
+                or (diverse < 0.1)
+                or (ratio > 15)
+                or (ratio < 1 / 15)):
             possible = False
         else:
             possible = True
