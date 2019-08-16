@@ -603,19 +603,12 @@ class ChromMatrix(object):
         if not full:
             return vecs
         else:
+            array_func = partial(np.full, fill_value=np.nan, dtype=vecs.dtype)
             if len(vecs.shape) == 2:
-                nan_mat = np.full(
-                    shape=(vecs.shape[0], self.shape[1]),
-                    fill_value=np.nan,
-                    dtype=vecs.dtype
-                )
+                nan_mat = array_func(shape=(vecs.shape[0], self.shape[1]))
                 nan_mat[:, self.mask] = vecs
             else:
-                nan_mat = np.full(
-                    shape=self.shape[1],
-                    fill_value=np.nan,
-                    dtype=vecs.dtype
-                )
+                nan_mat = array_func(shape=self.shape[1])
                 nan_mat[self.mask] = vecs
             return nan_mat
 
