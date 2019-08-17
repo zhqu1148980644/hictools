@@ -66,11 +66,13 @@ def peaks():
     "--inner-radius", "-p", type=int, default=2,
     help='Radius of innner square in hiccups.'
          'Pixels in this region will not be counted in the calcualtion of background.'
+         'According to original paper, p set to 1 at 25kb resolution; 2 at 10kb; 4 at 5kb.'
 )
 @click.option(
     "--outer-radius", "-w", type=int, default=5,
     help='Radius of outer square in hiccps.'
          'Only pixels in this region will be counted in the calculation of background.'
+         'According to original paper, w set to 3 at 25kb resolution; 5 at 10kb; 7 at 5kb.'
 )
 @click.option(
     "--chunk-size", '-h', type=int, default=500,
