@@ -402,7 +402,7 @@ def build_results(peaks: tuple) -> pd.DataFrame:
         return peaks
 
 
-@suppress_warning(RuntimeWarning)
+@suppress_warning
 def calculate_lambda(expected: np.ndarray,
                      observed: np.ndarray,
                      row_factors: np.ndarray,
