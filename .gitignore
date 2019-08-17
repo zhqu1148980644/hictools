@@ -5,3 +5,5 @@ dist
 hictools.egg-info
 *.py[cod]
 __pycache__/
+benchmark/download/
+benchmark/test.mcool
