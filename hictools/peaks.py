@@ -260,8 +260,9 @@ def get_chunk_slices(length: int,
     start = 0
     while 1:
         y_end = start + band_width
-        if y_end < length:
-            yield slice(start, start + height), slice(start, y_end)
+        x_end = start + height
+        if (y_end < length) and (x_end < length):
+            yield slice(start, x_end), slice(start, y_end)
             start += height - ov_length
         else:
             yield slice(start, length), slice(start, length)
@@ -373,7 +374,6 @@ def build_results(peaks: tuple) -> pd.DataFrame:
     :param peaks: tuple. Tuple containing all infos related to peaks returned by find_peaks.
     :return: pd.DataFrame.
     """
-    indices, contacts_array, lambda_array, pvals, padjs, peak_info = peaks
     region_names = ['donut', 'horizontal', 'vertical', 'lower_left']
     num_region = len(region_names)
     col_names = (['i', 'j', 'ob']
@@ -383,18 +383,26 @@ def build_results(peaks: tuple) -> pd.DataFrame:
                  + ['center_i', 'center_j', 'radius'])
 
     dtypes = [np.int] * 3 + [np.float] * (len(col_names) - 3)
-    peaks = np.zeros(shape=contacts_array.size,
-                     dtype=[(col_name, dtype) for col_name, dtype in zip(col_names, dtypes)])
-    fields_name = list(peaks.dtype.names)
-    peaks['i'], peaks['j'], peaks['ob'] = indices[0], indices[1], contacts_array
-    peaks[fields_name[3: 3 + num_region]] = list(zip(*lambda_array))
-    peaks[fields_name[3 + num_region: 3 + 2 * num_region]] = list(zip(*pvals))
-    peaks[fields_name[3 + 2 * num_region: 3 + 3 * num_region]] = list(zip(*padjs))
-    peaks[fields_name[-3:]] = list(zip(*peak_info))
 
-    return pd.DataFrame(peaks)
+    if peaks:
+        indices, contacts_array, lambda_array, pvals, padjs, peak_info = peaks
+        peaks = np.zeros(shape=contacts_array.size,
+                         dtype=[(col_name, dtype) for col_name, dtype in zip(col_names, dtypes)])
+        fields_name = list(peaks.dtype.names)
+        peaks['i'], peaks['j'], peaks['ob'] = indices[0], indices[1], contacts_array
+        peaks[fields_name[3: 3 + num_region]] = list(zip(*lambda_array))
+        peaks[fields_name[3 + num_region: 3 + 2 * num_region]] = list(zip(*pvals))
+        peaks[fields_name[3 + 2 * num_region: 3 + 3 * num_region]] = list(zip(*padjs))
+        peaks[fields_name[-3:]] = list(zip(*peak_info))
+
+        return pd.DataFrame(peaks)
+    else:
+        peaks = pd.DataFrame(columns=col_names)
+        peaks = peaks.astype({name: t for name, t in zip(col_names, dtypes)})
+        return peaks
 
 
+@suppress_warning(RuntimeWarning)
 def calculate_lambda(expected: np.ndarray,
                      observed: np.ndarray,
                      row_factors: np.ndarray,
@@ -417,26 +425,31 @@ def calculate_lambda(expected: np.ndarray,
     :return: Tuple[tuple, np.ndarray]. The first tuple contains indices of all available pixels, and the second ndarray
     contains the corresponding lambdas in all regions specified in kernels.
     """
-    x, y = observed.nonzero()
-    dis = y - x
-    mask = ((dis <= (band_width - 2 * outer_radius))
-            & (x < (band_width - outer_radius))
-            & (dis >= ignore_diags - 1)
-            & (x >= outer_radius))
-    x, y = x[mask], y[mask]
+    try:
+        x, y = observed.nonzero()
+        dis = y - x
+        mask = ((dis <= (band_width - 2 * outer_radius))
+                & (x < (band_width - outer_radius))
+                & (dis >= ignore_diags - 1)
+                & (x >= outer_radius))
+        x, y = x[mask], y[mask]
 
-    ratio_array = np.full((len(kernels), x.size), 0, dtype=np.float)
-    for index, kernel in enumerate(kernels):
-        ob_sum = ndimage.convolve(observed, kernel)
-        ex_sum = ndimage.convolve(expected, kernel)
-        ratio_array[index] = (ob_sum / ex_sum)[(x, y)]
+        ratio_array = np.full((len(kernels), x.size), 0, dtype=np.float)
+        for index, kernel in enumerate(kernels):
+            ob_sum = ndimage.convolve(observed, kernel)
+            ex_sum = ndimage.convolve(expected, kernel)
+            ratio_array[index] = (ob_sum / ex_sum)[(x, y)]
 
-    lambda_array = (ratio_array
-                    * expected[(x, y)]
-                    * row_factors[x]
-                    * col_factors[y])
+        lambda_array = (ratio_array
+                        * expected[(x, y)]
+                        * row_factors[x]
+                        * col_factors[y])
 
-    return (x, y), lambda_array
+        return (x, y), lambda_array
+
+    except Exception as e:
+
+        return (np.array([]), np.array([])), np.array([])
 
 
 @ray.remote
@@ -509,40 +522,44 @@ def find_peaks(backgrounds: list,
     :return: tuple. Tuple of arrays.
     """
     # load data from ray store
-    x_indice = []
-    y_indice = []
-    lambda_array = []
-    contacts_array = []
-    for ray_id in backgrounds:
-        (_x_indice, _y_indice), _lambda_array, _contacts_array = ray.get(ray_id)
-        if len(_x_indice) == 0:
-            continue
-        x_indice.append(_x_indice)
-        y_indice.append(_y_indice)
-        lambda_array.append(_lambda_array)
-        contacts_array.append(_contacts_array)
+    try:
+        x_indice = []
+        y_indice = []
+        lambda_array = []
+        contacts_array = []
+        for ray_id in backgrounds:
+            (_x_indice, _y_indice), _lambda_array, _contacts_array = ray.get(ray_id)
+            if len(_x_indice) == 0:
+                continue
+            x_indice.append(_x_indice)
+            y_indice.append(_y_indice)
+            lambda_array.append(_lambda_array)
+            contacts_array.append(_contacts_array)
 
-    indices = (np.concatenate(x_indice), np.concatenate(y_indice))
-    lambda_array = np.concatenate(lambda_array, axis=1)
-    contacts_array = np.concatenate(contacts_array)
-    # multiple test
-    pvals, padjs, rejects = test_fn(contacts_array, lambda_array)
-    peaks = indices, contacts_array, lambda_array, pvals, padjs
+        indices = (np.concatenate(x_indice), np.concatenate(y_indice))
+        lambda_array = np.concatenate(lambda_array, axis=1)
+        contacts_array = np.concatenate(contacts_array)
+        # multiple test
+        pvals, padjs, rejects = test_fn(contacts_array, lambda_array)
+        peaks = indices, contacts_array, lambda_array, pvals, padjs
 
-    # Filtering insignificant point after calculating padj using fdr_bh multiple test method.
-    reject = np.all(rejects, axis=0)
-    peaks = tuple(mask_array(reject, *peaks))
+        # Filtering insignificant point after calculating padj using fdr_bh multiple test method.
+        reject = np.all(rejects, axis=0)
+        peaks = tuple(mask_array(reject, *peaks))
 
-    # Apply greedy clustering to merge  points into confidant peaks.
-    peak_index, peak_info = cluster_fn(peaks[0], peaks[1])
-    peaks = tuple(index_array(peak_index, *peaks))
-    peaks = (*peaks, peak_info)
+        # Apply greedy clustering to merge  points into confidant peaks.
+        peak_index, peak_info = cluster_fn(peaks[0], peaks[1])
+        peaks = tuple(index_array(peak_index, *peaks))
+        peaks = (*peaks, peak_info)
 
-    # Filter by gap_region, fold changes(enrichment) and singlet peak's sum-qvalue.
-    valid_mask = filter_fn(peaks)
-    peaks = tuple(mask_array(valid_mask, *peaks))
+        # Filter by gap_region, fold changes(enrichment) and singlet peak's sum-qvalue.
+        valid_mask = filter_fn(peaks)
+        peaks = tuple(mask_array(valid_mask, *peaks))
 
-    return peaks
+        return peaks
+
+    except Exception as e:
+        return tuple()
 
 
 @suppress_warning(warning_msg=ResourceWarning)
