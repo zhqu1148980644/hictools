@@ -450,7 +450,7 @@ class ChromMatrix(object):
         return self.HMM_MODELS[key]
 
     def peaks(self,
-              max_dis: int = 5000000,
+              max_dis: int = 8000000,
               p: int = 2,
               w: int = 5,
               fdrs: tuple = (0.01, 0.01, 0.01, 0.01),
@@ -511,7 +511,6 @@ class ChromMatrix(object):
             kernels=kernels,
             num_cpus=num_cpus,
             max_dis=max_dis,
-            outer_radius=w,
             resolution=self._binsize,
             fdrs=fdrs,
             sigs=sigs,
