@@ -9,14 +9,13 @@ from functools import partial
 import click
 import cooler
 import numpy as np
-import ray
 
 from .api import ChromMatrix as _ChromMatrix
 from .compartment import corr_sorter, plain_sorter
 from .peaks import hiccups, fetch_regions, expected_fetcher, observed_fetcher, factors_fetcher, chunks_gen
-from .utils import CPU_CORE
+from .utils import CPU_CORE, RayWrap
 
-ChromMatrix = ray.remote(_ChromMatrix)
+DEBUG = False
 
 # logger = logging.getLogger()
 # console_handler = logging.StreamHandler(sys.stdout)
@@ -27,6 +26,9 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 
 def fetch_chrom_dict(cool):
+    ray = RayWrap()
+    ChromMatrix = ray.remote(_ChromMatrix)
+
     co = cooler.Cooler(cool)
 
     records = co.bins()[['chrom', 'start', 'end']][:].copy()
@@ -34,13 +36,18 @@ def fetch_chrom_dict(cool):
     for chrom in co.chromnames:
         chrom_dict[chrom] = ChromMatrix.remote(co, chrom)
 
-    sys.stderr = open('/tmp/hictools.log', 'a')
+    if not DEBUG:
+        sys.stderr = open('/tmp/hictools.log', 'a')
     return co, records, chrom_dict
 
 
 @click.group()
-def cli():
-    pass
+@click.option("--debug", is_flag=True,
+    help="Open debug mode, disable ray.")
+def cli(debug):
+    if debug:
+        global DEBUG
+        DEBUG = True
 
 
 @cli.group()
@@ -118,7 +125,7 @@ def call_by_hiccups(cool, output,
                     ignore_single_gap, bin_index,
                     nproc):
     """Call peaks by using hiccups method."""
-    ray.init(num_cpus=nproc)
+    ray = RayWrap(num_cpus=nproc)
     co, _, chrom_dict = fetch_chrom_dict(cool)
 
     expected_dict = OrderedDict()
@@ -201,7 +208,7 @@ def tad():
          'This step is not only time consuming but also memory-intensive.'
 )
 def di_score(cool, output, balance, window_size, ignore_diags, nproc):
-    ray.init(num_cpus=nproc)
+    ray = RayWrap(num_cpus=nproc)
     _, records, chrom_dict = fetch_chrom_dict(cool)
 
     standard_di_dict = OrderedDict()
@@ -257,7 +264,7 @@ def di_score(cool, output, balance, window_size, ignore_diags, nproc):
          'This step is not only time consuming but also memory-intensive.'
 )
 def insu_score(cool, output, balance, window_size, normalize, ignore_diags, nproc):
-    ray.init(num_cpus=nproc)
+    ray = RayWrap(num_cpus=nproc)
     _, records, chrom_dict = fetch_chrom_dict(cool)
 
     insu_score_dict = OrderedDict()
@@ -312,7 +319,7 @@ def call_tad(cool, output, balance, nproc):
 )
 def expected(cool, output, balance, nproc):
     """Compute expected values from a .cool file."""
-    ray.init(num_cpus=nproc)
+    ray = RayWrap(num_cpus=nproc)
     co, records, chrom_dict = fetch_chrom_dict(cool)
 
     decay_dict = OrderedDict()
@@ -358,7 +365,7 @@ def expected(cool, output, balance, nproc):
 )
 def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, nproc):
     """Compute A/B compartment from a .cool file."""
-    ray.init(num_cpus=nproc)
+    ray = RayWrap(num_cpus=nproc)
     co, records, chrom_dict = fetch_chrom_dict(cool)
 
     compartment_dict = OrderedDict()
@@ -372,6 +379,7 @@ def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, npro
             full=True,
             ignore_diags=ignore_diags
         )
+        print(compartment_dict[key])
     compartments = np.hstack([ray.get(compartment_dict[key])
                               for key in chrom_dict.keys()])
 

@@ -6,7 +6,7 @@ import multiprocessing
 import shutil
 import subprocess
 import warnings
-from typing import Union
+from typing import Union, Optional
 
 import numpy as np
 from scipy import sparse
@@ -331,6 +331,110 @@ def fill_diag(mat: np.ndarray,
     mat.ravel()[st: ed: length + 1] = fill_value
 
     return mat
+
+
+class RayWrap(object):
+    """
+    An wrap of ray, for redirect ray log and debug easily.
+    If not enable_ray, the code will execute serially.
+    """
+
+    import ray
+
+    _cache = {}  # store mapping from task id to result obj
+
+    def __init__(self, *args,
+                 enable_ray:Optional[bool]=None,
+                 log_file:str="./ray.log",
+                 **kwargs):
+        if enable_ray is None:
+            debug = globals().get('DEBUG') or False
+            self.enable_ray = (not debug)
+        else:
+            self.enable_ray = enable_ray
+        self.log_file = log_file
+        if self.enable_ray:
+            from contextlib import redirect_stderr
+            if not self.ray.is_initialized():
+                with open(log_file, 'a') as f:
+                    with redirect_stderr(f):
+                        self.ray.init(*args, **kwargs)
+
+    def remote(self, obj):
+        if self.enable_ray:
+            return self.ray.remote(obj)
+        else:
+            import inspect
+            if inspect.isclass(obj):
+                return self._mimic_actor(obj)
+            elif inspect.isfunction(obj):
+                return self._mimic_func(obj)
+            else:
+                raise TypeError("Only support remote fcuntion or class(Actor)")
+
+    def _mimic_actor(self, cls):
+        """mimic Actor's behavior"""
+        import inspect
+
+        _init_ = cls.__init__
+        def _init(obj, *args, **kwargs):
+            _init_(obj, *args, **kwargs)
+            for name, attr in inspect.getmembers(obj):
+                if not inspect.ismethod(attr) or name.startswith('__'):
+                    continue
+                mthd = attr
+                def make_remote(name, mthd):
+                    # here need a outer function, receive arguments,
+                    # see: https://stackoverflow.com/a/3431699
+                    def remote_(*args, **kwargs):  # mimic actor.func.remote()
+                        print(f"Remote method '{cls.__name__}.{name}' is called.")
+                        id_ = f"{cls.__name__}[{id(obj)}].{name}_{args}_{kwargs}"
+                        res = mthd(*args, **kwargs)
+                        self._cache[id_] = res
+                        return id_
+                    return remote_
+                mic_mthd = mimic_method(mthd)
+                mic_mthd.remote = make_remote(name, mthd)
+                setattr(obj, name, mic_mthd)
+        cls.__init__ = _init
+        
+        def _create(*args, **kwargs):
+            obj = cls(*args, **kwargs)
+            obj.ray = self
+            return obj
+        setattr(cls, 'remote', _create)
+        return cls
+
+    def _mimic_func(self, obj):
+        """ mimic remote function """
+        def wrapper(*args, **kwargs):
+            print(f"Remote function '{obj.__name__}' is called.")
+            id_ = f"{obj.__name__}_{args}_{kwargs}"
+            res = obj(*args, **kwargs)
+            self._cache[id_] = res
+            return id_
+        return wrapper
+
+    def get(self, id_):
+        if self.enable_ray:
+            return self.ray.get(id_)
+        else:
+            return self._cache[id_]
+
+
+class mimic_method(object):
+    """ Used for mimic class's method.
+    Use this substitude original bound method,
+    you can specify attributes to it, like:
+    >>> a = A()
+    >>> a.mth.b = 1  # this is not allowed!(raise AttributeError)
+    >>> a.mth = mimic_method(a.mth)
+    >>> a.mth.b = 1  # this is allowed
+    """
+    def __init__(self, mth):
+        self.mth = mth
+    def __call__(self, *args, **kwargs):
+        return self.mth(*args, **kwargs)
 
 
 if __name__ == "__main__":
