@@ -83,6 +83,14 @@ class UploadCommand(Command):
         sys.exit()
 
 
+def get_install_requires():
+    requirements = []
+    with open('requirements.txt') as f:
+        for line in f:
+            requirements.append(line.strip())
+    return requirements
+
+
 # Where the magic happens:
 setup(
     name=NAME,
@@ -97,9 +105,7 @@ setup(
     packages=find_packages(exclude=["tests", "*.tests", "*.tests.*", "tests.*"]),
     # If your package is a single module, use this instead of 'packages':
     # py_modules=['mypackage'],
-    install_requires=[
-        'Click'
-    ],
+    install_requires=get_install_requires(),
     entry_points='''
         [console_scripts]
         hictools=hictools.cli:cli
