@@ -5,6 +5,7 @@ Command line tools.
 import sys
 from collections import OrderedDict
 from functools import partial
+import logging
 
 import click
 import cooler
@@ -13,13 +14,9 @@ import numpy as np
 from .api import ChromMatrix as _ChromMatrix
 from .compartment import corr_sorter, plain_sorter
 from .peaks import hiccups, fetch_regions, expected_fetcher, observed_fetcher, factors_fetcher, chunks_gen
-from .utils import CPU_CORE, RayWrap
+from .utils import CPU_CORE, RayWrap, get_logger
+from . import config
 
-DEBUG = False
-
-# logger = logging.getLogger()
-# console_handler = logging.StreamHandler(sys.stdout)
-# logger.addHandler(console_handler)
 
 click.option = partial(click.option, show_default=True)
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -36,18 +33,29 @@ def fetch_chrom_dict(cool):
     for chrom in co.chromnames:
         chrom_dict[chrom] = ChromMatrix.remote(co, chrom)
 
-    if not DEBUG:
-        sys.stderr = open('/tmp/hictools.log', 'a')
     return co, records, chrom_dict
 
 
 @click.group()
+@click.option("--log-file", help="The log file, default output to stderr.")
 @click.option("--debug", is_flag=True,
     help="Open debug mode, disable ray.")
-def cli(debug):
+def cli(log_file, debug):
+    log = logging.getLogger() # root logger
+    if log_file:
+        handler = logging.FileHandler(log_file)
+    else:
+        handler = logging.StreamHandler(sys.stderr)
+    fomatter = logging.Formatter(
+        fmt=config.LOGGING_FMT,
+        datefmt=config.LOGGING_DATE_FMT)
+    handler.setFormatter(fomatter)
+    log.addHandler(handler)
     if debug:
-        global DEBUG
-        DEBUG = True
+        config.DEBUG = True
+        log.setLevel(logging.DEBUG)
+    else:
+        log.setLevel(logging.INFO)
 
 
 @cli.group()
@@ -365,6 +373,10 @@ def expected(cool, output, balance, nproc):
 )
 def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, nproc):
     """Compute A/B compartment from a .cool file."""
+    log = get_logger()
+    log.info("Call compartments")
+    log.debug(locals())
+
     ray = RayWrap(num_cpus=nproc)
     co, records, chrom_dict = fetch_chrom_dict(cool)
 

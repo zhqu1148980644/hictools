@@ -348,7 +348,8 @@ class RayWrap(object):
                  log_file:str="./ray.log",
                  **kwargs):
         if enable_ray is None:
-            debug = globals().get('DEBUG') or False
+            from . import config
+            debug = config.DEBUG
             self.enable_ray = (not debug)
         else:
             self.enable_ray = enable_ray
@@ -376,16 +377,10 @@ class RayWrap(object):
         """mimic Actor's behavior"""
         import inspect
 
-        _init_ = cls.__init__
-        def _init(obj, *args, **kwargs):
-            _init_(obj, *args, **kwargs)
-            for name, attr in inspect.getmembers(obj):
-                if not inspect.ismethod(attr) or name.startswith('__'):
-                    continue
-                mthd = attr
+        class _Actor(cls):
+            def __init__(obj, *args, **kwargs):
+                super().__init__(*args, **kwargs)
                 def make_remote(name, mthd):
-                    # here need a outer function, receive arguments,
-                    # see: https://stackoverflow.com/a/3431699
                     def remote_(*args, **kwargs):  # mimic actor.func.remote()
                         print(f"Remote method '{cls.__name__}.{name}' is called.")
                         id_ = f"{cls.__name__}[{id(obj)}].{name}_{args}_{kwargs}"
@@ -393,17 +388,21 @@ class RayWrap(object):
                         self._cache[id_] = res
                         return id_
                     return remote_
-                mic_mthd = mimic_method(mthd)
-                mic_mthd.remote = make_remote(name, mthd)
-                setattr(obj, name, mic_mthd)
-        cls.__init__ = _init
+                for name, attr in inspect.getmembers(obj):
+                    if not inspect.ismethod(attr) or name.startswith('__'):
+                        continue
+                    mthd = attr
+                    mic_mthd = mimic_method(mthd)
+                    mic_mthd.remote = make_remote(name, mthd)
+                    setattr(obj, name, mic_mthd)
+
+            @classmethod
+            def remote(cls_, *args, **kwargs):
+                obj = cls_(*args, **kwargs)
+                obj.ray = self
+                return obj
         
-        def _create(*args, **kwargs):
-            obj = cls(*args, **kwargs)
-            obj.ray = self
-            return obj
-        setattr(cls, 'remote', _create)
-        return cls
+        return _Actor
 
     def _mimic_func(self, obj):
         """ mimic remote function """
@@ -435,6 +434,36 @@ class mimic_method(object):
         self.mth = mth
     def __call__(self, *args, **kwargs):
         return self.mth(*args, **kwargs)
+
+
+def get_logger():
+    from inspect import currentframe, getframeinfo
+
+    def get_caller():
+        """
+        Get caller function of the `get_logger`.
+        reference: https://stackoverflow.com/a/4493322/8500469
+        """
+        cal_f = currentframe().f_back.f_back
+        func_name = getframeinfo(cal_f)[2]
+        outer_f = cal_f.f_back
+        func = outer_f.f_locals.get(
+            func_name,
+            outer_f.f_globals.get(func_name))
+        func = func or cal_f.f_globals.get(func_name)
+        return func
+
+    caller = get_caller()
+    assert caller is not None, "Caller not Found."
+    import click
+    if isinstance(caller, click.core.Command):
+        name = 'CLI.' + caller.name
+    else:
+        name = caller.__module__ + '.' + caller.__name__
+
+    import logging
+    log = logging.getLogger(name)
+    return log
 
 
 if __name__ == "__main__":
