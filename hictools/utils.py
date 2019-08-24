@@ -7,6 +7,7 @@ import shutil
 import subprocess
 import warnings
 from typing import Union, Optional
+import logging
 
 import numpy as np
 from scipy import sparse
@@ -376,13 +377,14 @@ class RayWrap(object):
     def _mimic_actor(self, cls):
         """mimic Actor's behavior"""
         import inspect
+        log = get_logger()
 
         class _Actor(cls):
             def __init__(obj, *args, **kwargs):
                 super().__init__(*args, **kwargs)
                 def make_remote(name, mthd):
                     def remote_(*args, **kwargs):  # mimic actor.func.remote()
-                        print(f"Remote method '{cls.__name__}.{name}' is called.")
+                        log.debug(f"Remote method '{cls.__name__}.{name}' is called.")
                         id_ = f"{cls.__name__}[{id(obj)}].{name}_{args}_{kwargs}"
                         res = mthd(*args, **kwargs)
                         self._cache[id_] = res
@@ -436,8 +438,12 @@ class mimic_method(object):
         return self.mth(*args, **kwargs)
 
 
-def get_logger():
-    from inspect import currentframe, getframeinfo
+def get_logger(name:Optional[str]=None) -> logging.Logger:
+    """
+    :param name: the name of the Logger object, if not set will
+    set a default name according to it's caller.
+    """
+    from inspect import currentframe, getframeinfo, ismethod
 
     def get_caller():
         """
@@ -450,18 +456,29 @@ def get_logger():
         func = outer_f.f_locals.get(
             func_name,
             outer_f.f_globals.get(func_name))
-        func = func or cal_f.f_globals.get(func_name)
+        if func is None:  # call from click command
+            func = cal_f.f_globals.get(func_name)
+        if (func is None) and ('self' in outer_f.f_locals):  # call from method
+            try:
+                func = getattr(outer_f.f_locals.get('self'), func_name)
+            except AttributeError:
+                pass
         return func
 
-    caller = get_caller()
-    assert caller is not None, "Caller not Found."
-    import click
-    if isinstance(caller, click.core.Command):
-        name = 'CLI.' + caller.name
-    else:
-        name = caller.__module__ + '.' + caller.__name__
+    if name is None:  # set a default name to logger
+        caller = get_caller()
+        assert caller is not None, "Caller not Found."
+        import click
+        if isinstance(caller, click.core.Command):  # click command
+            name = 'CLI.' + caller.name
+        else:  # function & method
+            name = caller.__module__ + '.'
+            if '__wrapped__' in caller.__dict__:
+                cname = caller.__wrapped__.__qualname__
+            else:
+                cname = caller.__qualname__
+            name += cname
 
-    import logging
     log = logging.getLogger(name)
     return log
 
