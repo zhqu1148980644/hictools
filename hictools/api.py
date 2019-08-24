@@ -580,11 +580,18 @@ class ChromMatrix(object):
         vec_range = check_slice(vec_range)
         com_range = check_slice(com_range)
         vecnum = vec_range.stop
-        if method == 'pca':
-            vecs = get_pca_compartment(
-                mat=self.corr(balance=balance, full=False, ignore_diags=ignore_diags),
-                vecnum=vecnum
-            )
+
+        if (self.shape[0] <= 1) or (self.shape[1] <= 1):
+            vecs = np.array([[np.nan] for _ in range(vecnum)])
+        elif method == 'pca':
+            corr = self.corr(balance=balance, full=False, ignore_diags=ignore_diags)
+            if (np.all(np.isnan(corr))):
+                vecs = np.full((vecnum, min(1, self.shape[0])), np.nan)
+            else:
+                vecs = get_pca_compartment(
+                    mat=corr,
+                    vecnum=vecnum
+                )
         elif method == 'eigen':
             vecs = get_eigen_compartment(
                 mat=self.oe(balance=balance, full=False, ignore_diags=ignore_diags) - 1,
