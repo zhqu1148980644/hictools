@@ -36,7 +36,7 @@ def fetch_chrom_dict(cool):
     return co, records, chrom_dict
 
 
-@click.group()
+@click.group(context_settings=CONTEXT_SETTINGS)
 @click.option("--log-file", help="The log file, default output to stderr.")
 @click.option("--debug", is_flag=True,
     help="Open debug mode, disable ray.")
@@ -64,7 +64,7 @@ def peaks():
     pass
 
 
-@peaks.command(context_settings=CONTEXT_SETTINGS)
+@peaks.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -177,7 +177,7 @@ def call_by_hiccups(cool, output,
     peaks_df.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
 
 
-@peaks.command(context_settings=CONTEXT_SETTINGS)
+@peaks.command()
 @click.argument(
     "file", nargs=1, type=click.File('r')
 )
@@ -192,7 +192,7 @@ def tad():
     pass
 
 
-@tad.command(context_settings=CONTEXT_SETTINGS)
+@tad.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -244,7 +244,7 @@ def di_score(cool, output, balance, window_size, ignore_diags, nproc):
     records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
 
 
-@tad.command(context_settings=CONTEXT_SETTINGS)
+@tad.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -290,7 +290,7 @@ def insu_score(cool, output, balance, window_size, normalize, ignore_diags, npro
     records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
 
 
-@tad.command(context_settings=CONTEXT_SETTINGS)
+@tad.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -310,7 +310,7 @@ def call_tad(cool, output, balance, nproc):
     click.echo("Not implemented yet.")
 
 
-@cli.command(context_settings=CONTEXT_SETTINGS)
+@cli.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -340,7 +340,7 @@ def expected(cool, output, balance, nproc):
     records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
 
 
-@cli.command(context_settings=CONTEXT_SETTINGS)
+@cli.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -368,10 +368,14 @@ def expected(cool, output, balance, nproc):
     help='Sort compartments based on corr matrix.'
 )
 @click.option(
+    '--out-fmt', type=click.Choice(['tab', 'bigwig']), default='tab',
+    help="Output format, if specify 'bigwig', package 'pyBigWig' is needed."
+)
+@click.option(
     '--nproc', '-n', type=int, nargs=1, default=25,
     help='Number of cores for calculation'
 )
-def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, nproc):
+def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, out_fmt, nproc):
     """Compute A/B compartment from a .cool file."""
     log = get_logger()
     log.info("Call compartments")
@@ -391,7 +395,7 @@ def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, npro
             full=True,
             ignore_diags=ignore_diags
         )
-        print(compartment_dict[key])
+        log.debug(compartment_dict[key])
     compartments = np.hstack([ray.get(compartment_dict[key])
                               for key in chrom_dict.keys()])
 
@@ -401,7 +405,13 @@ def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, npro
     else:
         records['com_0'] = compartments
 
-    records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
+    if out_fmt == 'tab':
+        records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
+    elif out_fmt == 'bigwig':
+        from .utils import records2bigwigs
+        records2bigwigs(records, output.name)
+    else:
+        raise IOError("Only support tab or bigwig output format.")
 
 
 if __name__ == "__main__":

@@ -483,5 +483,43 @@ def get_logger(name:Optional[str]=None) -> logging.Logger:
     return log
 
 
+def records2bigwigs(df:"pandas.core.DataFrame", prefix:str):
+    """ Dump dataframe to bigwig files
+    :param df: records dataframe, contain fields: chrom, start, end.
+    :param prefix: prefix of output bigwig files.
+    """
+    required_fields = ['chrom', 'start', 'end']
+    assert all([(f in df) for f in required_fields]), \
+        f"records dataframe need fields: {', '.join(required_fields)}"
+    import pyBigWig
+    val_cols = [c for c in list(df.columns) if c not in required_fields]
+    bigwigs = {}
+    for col in val_cols:
+        import os
+        from os.path import exists
+        path_ = prefix+'.'+col+'.bw'
+        if exists(path_):
+            os.remove(path_)
+        bigwigs[col] = pyBigWig.open(path_, 'w')
+
+    chroms = df['chrom'].drop_duplicates()
+    chroms2maxend = {c: df[df['chrom'] == c]['end'].max() for c in chroms}
+    headers = list(chroms2maxend.items())
+    for bw in bigwigs.values():
+        bw.addHeader(headers)
+    for col in val_cols:
+        df_ = df[~df[col].isna()]
+        bigwigs[col].addEntries(
+            chroms=list(df_['chrom']),
+            starts=list(df_['start']),
+            ends=  list(df_['end']),
+            values=list(df_[col])
+        )
+
+    for bw in bigwigs.values():
+        bw.close()
+
+
+
 if __name__ == "__main__":
     pass
