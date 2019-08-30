@@ -20,7 +20,7 @@ def get_decay(mat: np.ndarray,
               span_fn: Callable[[int, int], np.ndarray] = linear_bins,
               ndiags: int = None,
               ignore_nan: bool = True,
-              ignore_zero: bool = False,
+              ignore_zero: bool = True,
               record: bool = False) -> np.ndarray:
     """Calculate mean contact across each diagonal.
 
@@ -33,8 +33,7 @@ def get_decay(mat: np.ndarray,
     :return: np.ndarray.
     """
     length = mat.shape[0]
-    if ndiags is None:
-        ndiags = length
+    ndiags = ndiags if ndiags is not None else length
     bins_span = span_fn(0, length)
     decay = np.zeros(length, dtype=mat.dtype)
 
@@ -62,7 +61,7 @@ def get_decay(mat: np.ndarray,
                 sum_counts += np.sum(sub_data)
             num_pixels += sub_data.size
 
-        average = sum_counts / num_pixels if num_pixels else 0
+        average = (sum_counts / num_pixels) if num_pixels else 0
         decay[start: end] = average
         if record:
             nums_array[start: end] = num_pixels
@@ -143,7 +142,7 @@ def get_eigen_compartment(mat, vecnum: int = 3, subtract_mean=False, divide_by_m
     return eigvecs
 
 
-def corr_sorter(chrom_matrix, eigvecs: list, balance: bool = True, ignore_diags: int = 3):
+def corr_sorter(chrom_matrix, eigvecs: np.ndarray, corr=None, **kwargs):
     """Choose the most possible vector which may infer the compartment A/B seperation based on pearson correlation matrix.
         1. Choose vector:
             In general, the sums of pearson correlation value within A and B is larger than the sums of pearson
@@ -153,8 +152,8 @@ def corr_sorter(chrom_matrix, eigvecs: list, balance: bool = True, ignore_diags:
 
     :param chrom_matrix:
     :param eigvecs:
-    :param balance:
-    :param ignore_diags:
+    :param corr:
+    :param kwargs:
     :return:
     """
 
@@ -182,10 +181,9 @@ def corr_sorter(chrom_matrix, eigvecs: list, balance: bool = True, ignore_diags:
         else:
             possible = True
 
-        mean_aa, mean_bb, mean_ab = mean_corr(
-            mat=chrom_matrix.corr(balance=balance, full=False, ignore_diags=ignore_diags),
-            compartment=component
-        )
+        if corr is None:
+            chrom_matrix.corr(**kwargs)
+        mean_aa, mean_bb, mean_ab = mean_corr(mat=corr, compartment=component)
 
         coms.append(
             (
@@ -392,66 +390,82 @@ class SliceMixin(object):
             if step is None:
                 step = 1
             slice_ = slice(start, stop, step)
+
         return slice_
 
-    def _check_slices(self, slices, lengths):
-        if not isinstance(slices, tuple):
-            row_slice = col_slice = slices
-        else:
-            row_slice, col_slice, *_ = slices
-        row_slice = self._fill_slice(row_slice, lengths[0])
-        col_slice = self._fill_slice(col_slice, lengths[1])
+    @staticmethod
+    def _is_slices(slices):
+        try:
+            for slice_ in slices:
+                if not isinstance(slice_, slice):
+                    return False
+            return True
+        except TypeError as e:
+            return isinstance(slices, slice)
 
-        return row_slice, col_slice
+    def _check_slices(self, slices, lengths, check_forward=False):
+        if not self._is_slices(slices):
+            raise TypeError('Not slices')
+
+        if isinstance(slices, slice):
+            slices = (slices,) * len(lengths)
+
+        for slice_, length in zip(slices, lengths):
+            filled_slice = self._fill_slice(slice_, length)
+            if (check_forward
+                    and (filled_slice.stop < filled_slice.start)):
+                raise ValueError("Slice's stop is smaller than start")
+
+            yield filled_slice
 
 
 class Toeplitz(SliceMixin):
-    # TODO(zhongquan789@126.com) seems a little redundant
+    __slots__ = ('_col', '_row')
+
     def __init__(self, col, row=None):
-        """
+        self._col = col
+        self._row = col if row is None else row
 
-        :param col:
-        :param row:
-        """
-        self._row = col
-        self._col = col if row is None else row
-
-    def __getitem__(self, item):
-        row_slice, col_slice = self._check_slices(item, (self._row.size, self._col.size))
+    def __getitem__(self, items):
+        row_slice, col_slice = tuple(self._check_slices(
+            items,
+            (self._col.size, self._row.size),
+            check_forward=True)
+        )
         n_diags = col_slice.start - row_slice.start
-        row_len = row_slice.stop - row_slice.start
-        col_len = col_slice.stop - col_slice.start
+        height = row_slice.stop - row_slice.start
+        width = col_slice.stop - col_slice.start
 
-        if row_len == 1 and col_len == 1:
-            if n_diags >= 0:
-                ma = np.array(self._col[n_diags])
-            else:
-                ma = np.array(self._row[n_diags])
-            return ma
+        if height == 1 and width == 1:
+            array = self._row if n_diags >= 0 else self._col
+            return array[n_diags]
+
         else:
             if n_diags >= 0:
-                col = self._col[n_diags: n_diags + col_len]
-                row = self._col[:n_diags + 1][::-1][:-1]
-                if n_diags < row_len:
-                    row = np.r_[row, self._row[:row_len - n_diags]]
+                harray = self._row[n_diags: n_diags + width]
+                varray = self._row[:n_diags + 1][::-1][:-1]
+                if n_diags < height:
+                    varray = np.r_[varray, self._row[:height - n_diags]]
+                else:
+                    varray = varray[:height]
             else:
                 n_diags *= -1
-                row = self._row[n_diags: n_diags + row_len]
-                col = self._row[:n_diags + 1][::-1][:-1]
-                if n_diags < col_len:
-                    col = np.r_[col, self._col[:col_len - n_diags]]
+                varray = self._col[n_diags: n_diags + height]
+                harray = self._col[:n_diags + 1][::-1][:-1]
+                if n_diags < width:
+                    harray = np.r_[harray, self._col[:width - n_diags]]
+                else:
+                    harray = harray[:width]
 
-            ma = nl.toeplitz(row[::row_slice.step], col[::col_slice.step])
+            ma = nl.toeplitz(varray[::row_slice.step], harray[::col_slice.step])
 
             return ma.ravel() if ma.size == 1 else ma
 
 
 class Expected(Toeplitz):
-    def __init__(self, decay):
-        """
+    __slots__ = ('_col', '_row')
 
-        :param decay:
-        """
+    def __init__(self, decay):
         super().__init__(decay)
 
 

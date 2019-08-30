@@ -1,49 +1,23 @@
 """
 Utils for other modules.
 """
+import logging
 import functools
+import itertools
 import multiprocessing
 import shutil
 import subprocess
 import warnings
-from typing import Union, Optional
-import logging
+from collections import UserDict
+from functools import partial, wraps
+from typing import Union, Iterable
 
 import numpy as np
 from scipy import sparse
+import pandas as pd
+import pyBigWig
 
 CPU_CORE = multiprocessing.cpu_count()
-
-
-class LazyProperty(object):
-    """Lazy property for caching computed properties"""
-
-    def __init__(self, func):
-        self.func = func
-
-    def __get__(self, instance, owner):
-        if instance is None:
-            return self
-        else:
-            value = self.func(instance)
-            setattr(instance, self.func.__name__, value)
-            return value
-
-
-def lazy_method(func):
-    """Lazy method for caching results of time-consuming methods"""
-
-    @functools.wraps(func)
-    def lazy(self, *args, **kwargs):
-        key = "_lazy_{}_{}_{}".format(func.__name__, args, kwargs)
-        if hasattr(self, key):
-            return getattr(self, key)
-        else:
-            value = func(self, *args, **kwargs)
-            setattr(self, key, value)
-            return value
-
-    return lazy
 
 
 def suppress_warning(func=None, warning_msg=RuntimeWarning):
@@ -64,38 +38,41 @@ def suppress_warning(func=None, warning_msg=RuntimeWarning):
     return inner
 
 
-def mask_array(mask, *args) -> np.ndarray:
-    """Mask all ndarray in args with a given Boolean array.
-
-    :param mask: np.ndarray. Boolean array where desired values are marked with True.
-    :param args: tuple. tuple of np.ndarray. Masking will be applied to each ndarray.
-    :return: np.ndarray. A generator yield a masked ndarray each time.
+def records2bigwigs(df: pd.DataFrame, prefix: str):
+    """ Dump dataframe to bigwig files
+    :param df: records dataframe, contain fields: chrom, start, end.
+    :param prefix: prefix of output bigwig files.
     """
-    for mat in args:
-        if isinstance(mat, (tuple, list)):
-            yield tuple(mask_array(mask, *mat))
-        else:
-            if len(mat.shape) == 1:
-                yield mat[mask]
-            else:
-                yield mat[:, mask]
+    required_fields = ['chrom', 'start', 'end']
+    assert all([(f in df) for f in required_fields]), \
+        f"records dataframe need fields: {', '.join(required_fields)}"
 
+    val_cols = [c for c in list(df.columns) if c not in required_fields]
+    bigwigs = {}
+    for col in val_cols:
+        import os
+        from os.path import exists
+        path_ = prefix + '.' + col + '.bw'
+        if exists(path_):
+            os.remove(path_)
+        bigwigs[col] = pyBigWig.open(path_, 'w')
 
-def index_array(index, *args):
-    """Index all ndarray in args with a given Integer array. Be cautious of the order of each value in indexed ndarray.
+    chroms = df['chrom'].drop_duplicates()
+    chroms2maxend = {c: df[df['chrom'] == c]['end'].max() for c in chroms}
+    headers = list(chroms2maxend.items())
+    for bw in bigwigs.values():
+        bw.addHeader(headers)
+    for col in val_cols:
+        df_ = df[~df[col].isna()]
+        bigwigs[col].addEntries(
+            chroms=list(df_['chrom']),
+            starts=list(df_['start']),
+            ends=list(df_['end']),
+            values=list(df_[col])
+        )
 
-    :param index: np.ndarray. Integer array with indexs of desired values'.
-    :param args: tuple. tuple of np.ndarray. Indexing will be applied to each ndarray.
-    :return: np.ndarray. A generator yield indexed ndarray each time.
-    """
-    yield from mask_array(index, *args)
-
-
-def check_slice(s: Union[slice, int]):
-    if not isinstance(s, slice):
-        return slice(0, s, 1)
-    else:
-        return s
+    for bw in bigwigs.values():
+        bw.close()
 
 
 class auto_open(object):
@@ -263,6 +240,33 @@ def stream_to_file(filename: str, stream):
             f.write(line)
 
 
+def mask_array(mask, *args) -> np.ndarray:
+    """Mask all ndarray in args with a given Boolean array.
+
+    :param mask: np.ndarray. Boolean array where desired values are marked with True.
+    :param args: tuple. tuple of np.ndarray. Masking will be applied to each ndarray.
+    :return: np.ndarray. A generator yield a masked ndarray each time.
+    """
+    for mat in args:
+        if isinstance(mat, (tuple, list)):
+            yield tuple(mask_array(mask, *mat))
+        else:
+            if len(mat.shape) == 1:
+                yield mat[mask]
+            else:
+                yield mat[:, mask]
+
+
+def index_array(index, *args):
+    """Index all ndarray in args with a given Integer array. Be cautious of the order of each value in indexed ndarray.
+
+    :param index: np.ndarray. Integer array with indexs of desired values'.
+    :param args: tuple. tuple of np.ndarray. Indexing will be applied to each ndarray.
+    :return: np.ndarray. A generator yield indexed ndarray each time.
+    """
+    yield from mask_array(index, *args)
+
+
 def remove_small_gap(gap_mask: np.ndarray, gap_size: int = 1) -> np.ndarray:
     """Remove gaps with length shorter than the specified length threshold in a Boolean array.
 
@@ -311,7 +315,7 @@ def is_symmetric(mat: Union[np.ndarray, sparse.spmatrix],
 
 
 def fill_diag(mat: np.ndarray,
-              offset: int = 1,
+              offset: int = 0,
               fill_value: float = 1.0,
               copy: bool = False) -> np.ndarray:
     """
@@ -328,10 +332,137 @@ def fill_diag(mat: np.ndarray,
         mat = mat.copy()
     length = mat.shape[1]
     st = max(offset, -length * offset)
-    ed = max(0, length - offset)
+    ed = max(0, length - offset) * length
     mat.ravel()[st: ed: length + 1] = fill_value
 
     return mat
+
+
+def fill_diags(mat: np.ndarray,
+               ignore_diags: Union[int, Iterable] = 1,
+               fill_values: Union[float, Iterable] = 1.,
+               copy: bool = False) -> np.ndarray:
+    if isinstance(ignore_diags, int):
+        ignore_diags = range(-ignore_diags + 1, ignore_diags)
+    if isinstance(fill_values, float):
+        fill_values = itertools.repeat(fill_values)
+    if copy:
+        mat = mat.copy()
+
+    for diag_index, fill_value in zip(ignore_diags, fill_values):
+        fill_diag(mat, diag_index, fill_value)
+
+    return mat
+
+
+class LazyProperty(object):
+    """Lazy property for caching computed properties"""
+
+    def __init__(self, func):
+        self.func = func
+
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        else:
+            value = self.func(instance)
+            setattr(instance, self.func.__name__, value)
+            return value
+
+
+# Dprecated. use functools.lru_cache
+def lazy_method(func):
+    """Lazy method for caching results of time-consuming methods"""
+
+    @functools.wraps(func)
+    def lazy(self, *args, **kwargs):
+        key = "_lazy_{}_{}_{}".format(func.__name__, args, kwargs)
+        if hasattr(self, key):
+            return getattr(self, key)
+        else:
+            value = func(self, *args, **kwargs)
+            setattr(self, key, value)
+            return value
+
+    return lazy
+
+
+class NodupsDict(UserDict):
+    def __setitem__(self, key, value):
+        if key in self:
+            raise RuntimeError(f"Can't register method with the same name: '{key}' multiple times.")
+        super().__setitem__(key, value)
+
+
+class multi_methods(object):
+    """Dispatch multi methods through attributes fetching"""
+
+    def __new__(cls, func=None, **kwargs):
+        if func is None:
+            return partial(cls, **kwargs)
+        else:
+            return super().__new__(cls)
+
+    def __init__(self, func=None, **kwargs):
+        self._func = func
+        self._global_config = kwargs
+        self._methods = NodupsDict()
+
+    def __get__(self, instance, owner):
+        @wraps(self._func)
+        def sub_method(self, *args, **kwargs):
+            if args or kwargs:
+                for _name in fn_names:
+                    sub_method.__dict__[_name] = partial(
+                        sub_method.__dict__[_name],
+                        *args,
+                        **kwargs
+                    )
+            return sub_method
+
+        if '__doc__' not in self.__dict__:
+            self.__dict__['__doc__'] = self._doc
+
+        fn_names = self._methods.keys()
+        bound_method = type(self.register)
+        for name in fn_names:
+            method = self._methods[name]
+            if instance is not None:
+                sub_method.__dict__[name] = bound_method(method, instance)
+            else:
+                sub_method.__dict__[name] = method
+
+        sub_method.__dict__['__doc__'] = self._doc
+        if instance is not None:
+            return bound_method(sub_method, instance)
+        else:
+            return sub_method
+
+    def __set__(self):
+        raise PermissionError("Not allowed.")
+
+    @LazyProperty
+    def _doc(self):
+        num = len(self._methods)
+        methods = '\n' + '\n'.join(f"{name}:\n{fn.__doc__}"
+                                   for name, fn in self._methods.items())
+        doc_template = self._func.__doc__
+
+        return doc_template.format(num=num, methods=methods)
+
+    def __call__(self, func=None, **kwargs):
+        if func is None:
+            return partial(self, **kwargs)
+        else:
+            return self.register(func, **kwargs)
+
+    def register(self, func=None, **kwargs):
+        if func is None:
+            return partial(self.register, **kwargs)
+        else:
+
+            func.__name__ = func.__name__.strip('_')
+            self._methods[func.__name__] = func
 
 
 class RayWrap(object):
@@ -345,8 +476,8 @@ class RayWrap(object):
     _cache = {}  # store mapping from task id to result obj
 
     def __init__(self, *args,
-                 enable_ray:Optional[bool]=None,
-                 log_file:str="./ray.log",
+                 enable_ray: Optional[bool] = None,
+                 log_file: str = "./ray.log",
                  **kwargs):
         if enable_ray is None:
             from . import config
@@ -382,6 +513,7 @@ class RayWrap(object):
         class _Actor(cls):
             def __init__(obj, *args, **kwargs):
                 super().__init__(*args, **kwargs)
+
                 def make_remote(name, mthd):
                     def remote_(*args, **kwargs):  # mimic actor.func.remote()
                         log.debug(f"Remote method '{cls.__name__}.{name}' is called.")
@@ -389,7 +521,9 @@ class RayWrap(object):
                         res = mthd(*args, **kwargs)
                         self._cache[id_] = res
                         return id_
+
                     return remote_
+
                 for name, attr in inspect.getmembers(obj):
                     if not inspect.ismethod(attr) or name.startswith('__'):
                         continue
@@ -403,17 +537,19 @@ class RayWrap(object):
                 obj = cls_(*args, **kwargs)
                 obj.ray = self
                 return obj
-        
+
         return _Actor
 
     def _mimic_func(self, obj):
         """ mimic remote function """
+
         def wrapper(*args, **kwargs):
             print(f"Remote function '{obj.__name__}' is called.")
             id_ = f"{obj.__name__}_{args}_{kwargs}"
             res = obj(*args, **kwargs)
             self._cache[id_] = res
             return id_
+
         return wrapper
 
     def get(self, id_):
@@ -432,13 +568,15 @@ class mimic_method(object):
     >>> a.mth = mimic_method(a.mth)
     >>> a.mth.b = 1  # this is allowed
     """
+
     def __init__(self, mth):
         self.mth = mth
+
     def __call__(self, *args, **kwargs):
         return self.mth(*args, **kwargs)
 
 
-def get_logger(name:Optional[str]=None) -> logging.Logger:
+def get_logger(name: str = None) -> logging.Logger:
     """
     :param name: the name of the Logger object, if not set will
     set a default name according to it's caller.
@@ -480,45 +618,8 @@ def get_logger(name:Optional[str]=None) -> logging.Logger:
             name += cname
 
     log = logging.getLogger(name)
+
     return log
-
-
-def records2bigwigs(df:"pandas.core.DataFrame", prefix:str):
-    """ Dump dataframe to bigwig files
-    :param df: records dataframe, contain fields: chrom, start, end.
-    :param prefix: prefix of output bigwig files.
-    """
-    required_fields = ['chrom', 'start', 'end']
-    assert all([(f in df) for f in required_fields]), \
-        f"records dataframe need fields: {', '.join(required_fields)}"
-    import pyBigWig
-    val_cols = [c for c in list(df.columns) if c not in required_fields]
-    bigwigs = {}
-    for col in val_cols:
-        import os
-        from os.path import exists
-        path_ = prefix+'.'+col+'.bw'
-        if exists(path_):
-            os.remove(path_)
-        bigwigs[col] = pyBigWig.open(path_, 'w')
-
-    chroms = df['chrom'].drop_duplicates()
-    chroms2maxend = {c: df[df['chrom'] == c]['end'].max() for c in chroms}
-    headers = list(chroms2maxend.items())
-    for bw in bigwigs.values():
-        bw.addHeader(headers)
-    for col in val_cols:
-        df_ = df[~df[col].isna()]
-        bigwigs[col].addEntries(
-            chroms=list(df_['chrom']),
-            starts=list(df_['start']),
-            ends=  list(df_['end']),
-            values=list(df_[col])
-        )
-
-    for bw in bigwigs.values():
-        bw.close()
-
 
 
 if __name__ == "__main__":
