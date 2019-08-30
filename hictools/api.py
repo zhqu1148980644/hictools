@@ -1,8 +1,7 @@
 """
 Interface.
 """
-import functools
-import inspect
+from functools import lru_cache
 from functools import partial
 from typing import Union, Callable, Tuple
 
@@ -11,10 +10,35 @@ import numpy as np
 import pandas as pd
 from scipy import sparse
 
-from .compartment import corr_sorter, linear_bins, get_decay, get_pca_compartment, get_eigen_compartment, Expected
-from .peaks import hiccups, get_chunk_slices, fetch_regions
-from .tad import split_diarray, call_domain, insulation_score, di_score, train_hmm, hidden_path
-from .utils import remove_small_gap, is_symmetric, suppress_warning, fill_diag, LazyProperty, lazy_method, check_slice
+from .compartment import (
+    corr_sorter,
+    linear_bins,
+    get_decay,
+    get_pca_compartment,
+    get_eigen_compartment,
+    Expected
+)
+from .peaks import (
+    hiccups,
+    get_chunk_slices,
+    fetch_kernels
+)
+from .tad import (
+    insulation_score,
+    di_score,
+    split_diarray,
+    train_hmm,
+    call_domain,
+    hidden_path
+)
+from .utils import (
+    remove_small_gap,
+    is_symmetric,
+    suppress_warning,
+    LazyProperty,
+    fill_diags,
+    multi_methods
+)
 
 
 def infer_mat(mat,
@@ -120,55 +144,6 @@ def infer_mat(mat,
     return mat, mask, decay
 
 
-def handle_mask(func):
-    """Deprecated"""
-    sig = inspect.signature(func)
-    if 'full' in sig.parameters.keys():
-        raise ValueError("full arguiment already defined.")
-
-    @functools.wraps(func)
-    def inner(self, *args, full=True, **kwargs):
-        result = func(self, *args, **kwargs)
-        if not isinstance(result, np.ndarray):
-            return result
-        if (len(result.shape) == 2) and not np.equal(*result.shape):
-            nan_mat = np.full(
-                [result.shape[0], self.shape[0]],
-                np.nan,
-                result.dtype
-            )
-            nan_mat[self.mask[None, :]] = result
-            return result
-
-        if len(result.shape) == 1:
-            mask = self.mask
-            shape = self.shape[0]
-            _full = result.size == self.shape[0]
-        else:
-            mask = self.mask_index
-            shape = self.shape
-            _full = result.shape == self.shape
-
-        if not _full and full:
-            nan_mat = np.full(shape, np.nan, dtype=result.dtype)
-            nan_mat[mask] = result
-            return nan_mat
-        elif _full and not full:
-            return result[mask]
-        else:
-            return result
-
-    params = list(sig.parameters.values())
-    params.append(inspect.Parameter(
-        'full',
-        inspect.Parameter.KEYWORD_ONLY,
-        default=True)
-    )
-    inner.__signature__ = sig.replace(parameters=params)
-
-    return inner
-
-
 class ChromMatrix(object):
     HMM_MODELS = {}
 
@@ -235,6 +210,43 @@ class ChromMatrix(object):
         """
         return np.ix_(self.mask, self.mask)
 
+    def handle_mask(self, array, full):
+        """Automatically handle mask."""
+        full_length = self.shape[0]
+        is_matrix, shape = len(array.shape) == 2, array.shape
+        intact = shape[0] == full_length
+        if len(shape) == 2:
+            intact = intact or (shape[1] == full_length)
+
+        if intact == full:
+            return array
+        elif intact and not full:
+            return array[self.mask if len(shape) != 2 else self.mask_index]
+        else:
+            predict_length = self.mask.sum()
+            fit = shape[0] == predict_length
+            if is_matrix:
+                fit = fit or shape[1] == predict_length
+            if not fit:
+                raise ValueError(f"Array of shape {shape} can't be unmasked."
+                                 f"Original shape is {(full_length, full_length)}")
+            nan_mat_fn = partial(np.full, fill_value=np.nan, dtype=array.dtype)
+
+            if is_matrix and shape[0] != shape[1]:
+                array = array.T if max(shape) == shape[0] else array
+                nan_mat = nan_mat_fn(shape=(shape[0], full_length))
+                nan_mat[:, self.mask] = array
+
+            elif is_matrix and shape[0] == shape[1]:
+                nan_mat = nan_mat_fn(shape=(full_length, full_length))
+                nan_mat[self.mask_index] = array
+
+            else:
+                nan_mat = nan_mat_fn(shape=full_length)
+                nan_mat[self.mask] = array
+
+            return nan_mat
+
     def observed(self,
                  balance: bool = True,
                  sparse: bool = False,
@@ -256,18 +268,18 @@ class ChromMatrix(object):
             observed = observed.copy() if (copy and balance) else observed
         else:
             tmp_observed = observed.copy()
-            x, y = tmp_observed.nonzero()
-            tmp_observed.data[np.where(y == x)] = 0
+            _x, _y = tmp_observed.nonzero()
+            tmp_observed.data[np.where(_y == _x)] = 0
             observed = (observed + tmp_observed.T).toarray()
 
         return observed
 
-    @lazy_method
+    @lru_cache(maxsize=3)
     def decay(self, balance: bool = True, ndiags: int = None) -> np.ndarray:
         """Calculate expected count of each interaction across a certain distance.
 
         :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
-        :param ndiags: int. Number of diagonals to ignore.
+        :param ndiags: int. Number of diagonals to compute.
         :return: np.ndarray. 1-d array representing expected values in each distance.
         """
         return get_decay(
@@ -280,26 +292,23 @@ class ChromMatrix(object):
             ndiags=ndiags
         )
 
-    def expected(self, balance: bool = True) -> Expected:
+    def expected(self, balance: bool = True, ndiags: int = None) -> Expected:
         """Calculate expected matrix that pixles in a certain diagonal have the same value.
 
         :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :param ndiags: int. Number of diagonals to compute.
         :return: np.ndarray. 2-d matrix representing expected matrix.
         """
-        return Expected(self.decay(balance=balance))
+        return Expected(self.decay(balance=balance, ndiags=ndiags))
 
     @suppress_warning
     def oe(self,
            balance: bool = True,
-           ignore_diags: int = 1,
-           diag_value: int = 1,
            sparse: bool = False,
            full: bool = True) -> np.ndarray:
         """Calculate expected-matrix-corrected matrix to reduce distance bias in hic experiments.
 
         :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
-        :param ignore_diags: int. Number of diagonals to ignore. Values in these ignored diagonals will set to 'diag_value'.
-        :param diag_value: int. Value to fill ignored diagonals of output oe matrix.
         :param sparse: bool. If return sparsed version of oe matrix.
         :param full: bool. Return non-gap region of output oe matrix if full set to False.
         :return: np.ndarray. 2-d array representing oe matrix.
@@ -309,51 +318,38 @@ class ChromMatrix(object):
             sparse=True,
             copy=True
         )
-        x, y = oe.nonzero()
-        oe.data /= self.decay()[y - x]
-        if not sparse:
-            oe += oe.T
-            oe = oe.toarray()
-            for diag_index in range(-ignore_diags + 1, ignore_diags):
-                fill_diag(oe, diag_index, diag_value)
-
-        if not full and not sparse:
-            return oe[self.mask_index]
-        else:
+        _x, _y = oe.nonzero()
+        oe.data /= self.decay(balance=balance)[_y - _x]
+        if sparse:
             return oe
+        else:
+            oe += oe.T
+            return self.handle_mask(oe.toarray(), full)
 
     @suppress_warning
     def corr(self,
              balance: bool = True,
              ignore_diags: int = 1,
-             diag_value: int = 1,
+             fill_value: float = 1.,
              full: bool = True) -> np.ndarray:
         """Calculate correlation matrix based on matrix..
 
         :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
         :param ignore_diags: int. Number of diagonals to ignore. Values in these ignored diagonals will set to 'diag_value'.
-        :param diag_value: int. Value to fill ignored diagonals of output corr matrix.
+        :param fill_value: float. Value to fill ignored diagonals of output corr matrix.
         :param full: bool. Return non-gap region of output corr matrix if full set to False.
         :return: np.ndarray. 2-d array representing corr matrix.
         """
 
-        oe = self.oe(
-            balance=balance,
+        _oe = self.oe(balance=balance, full=False)
+        _oe[np.isnan(_oe)] = 0
+        _oe = fill_diags(
+            mat=_oe,
             ignore_diags=ignore_diags,
-            diag_value=diag_value,
-            full=False
+            fill_values=fill_value
         )
-        oe[np.isnan(oe)] = 0
-        corr = np.corrcoef(oe).astype(np.float32)
-        for diag_index in range(-ignore_diags + 1, ignore_diags):
-            fill_diag(corr, diag_index, diag_value)
-
-        if not full:
-            return corr
-        else:
-            nan_mat = np.full(self.shape, np.nan, dtype=corr.dtype)
-            nan_mat[self.mask_index] = corr
-            return nan_mat
+        corr = np.corrcoef(_oe).astype(_oe.dtype)
+        return self.handle_mask(corr, full)
 
     def insu_score(self,
                    balance: bool = True,
@@ -371,7 +367,7 @@ class ChromMatrix(object):
         :return: np.ndarray.
         """
 
-        insu_score = insulation_score(
+        score = insulation_score(
             self.observed(
                 balance=balance,
                 sparse=True,
@@ -382,10 +378,7 @@ class ChromMatrix(object):
             normalize=normalize
         )
 
-        if not full:
-            return insu_score[self.mask]
-        else:
-            return insu_score
+        return self.handle_mask(score, full)
 
     def di_score(self,
                  balance: bool = True,
@@ -416,11 +409,147 @@ class ChromMatrix(object):
             fetch_window=fetch_window,
             method=method
         )
-        if not full:
-            return score[self.mask]
-        else:
-            return score
 
+        return self.handle_mask(score, full)
+
+    @multi_methods
+    def peaks(self):
+        """Currently support {num} methods for calling peaks: {methods}."""
+
+    @peaks
+    @lru_cache(maxsize=3)
+    def _hiccups(self,
+                 max_dis: int = 5000000,
+                 p: int = 2,
+                 w: int = 5,
+                 fdrs: tuple = (0.1, 0.1, 0.1, 0.1),
+                 sigs: tuple = (0.1, 0.1, 0.1, 0.1),
+                 fold_changes: tuple = (1.5, 1.5, 1.5, 1.5),
+                 ignore_single_gap: bool = True,
+                 chunk_size: int = 500,
+                 num_cpus: int = 1,
+                 bin_index: bool = True) -> pd.DataFrame:
+        """Using hiccups algorithm to detect loops in a band regions close to the main diagonal of hic contact matrix.
+
+        :param max_dis: int. Max distance of loops. Due to the natural property of loops(distance less than 8M) and
+        computation bound of hiccups algorithm, hiccups algorithm are applied only in a band region over the main diagonal
+        to speed up the whole process.
+        :param p: int. Radius of innner square in hiccups. Pixels in this region will not be counted in the calcualtion of background.
+        :param w: int. Radius of outer square in hiccps. Only pixels in this region will be counted in the calculation of background.
+        :param fdrs: tuple. Tuple of fdrs to control the false discovery rate for each background.
+        :param sigs: tuple. Tuple of padjs thresholds for each background.
+        :param fold_changes: tuple. Padjs threshold for each region. Valid peak's padjs should pass all four fold-hange thresholds.
+        :param ignore_single_gap: bool. If ignore small gaps when filtering peaks close to gap regions.
+        :param chunk_size: int. Height of each chunk(submatrix).
+        :param num_cpus: int. Number of cores to call peaks. Calculation based on chunks and process of finding peaks based
+        on different chromosome will run in parallel.
+        :return: pd.Dataframe.
+        """
+
+        def expected_fetcher(key, slices, expected=self.expected()):
+            return expected[slices]
+
+        def observed_fetcher(key, slices, cool=self._cool):
+            row_st, row_ed = slices[0].start + self._start, slices[0].stop + self._start
+            col_st, col_ed = slices[1].start + self._start, slices[1].stop + self._start
+            return cool.matrix()[slice(row_st, row_ed), slice(col_st, col_ed)]
+
+        def factors_fetcher(key, slices, factors=self._weights):
+            return factors[slices[0]], factors[slices[1]]
+
+        band_width = max_dis // self._binsize
+        if chunk_size is None:
+            chunk_size = band_width
+        chunks = get_chunk_slices(
+            length=self.shape[0],
+            band_width=band_width,
+            height=chunk_size,
+            ov_length=2 * w
+        )
+        chunks = ((self.chrom, chunk) for chunk in chunks)
+        kernels = fetch_kernels(p, w)
+
+        peaks_df = hiccups(
+            observed_fetcher=observed_fetcher,
+            expected_fetcher=expected_fetcher,
+            factors_fetcher=factors_fetcher,
+            chunks=chunks,
+            kernels=kernels,
+            inner_radius=p,
+            outer_radius=w,
+            num_cpus=num_cpus,
+            max_dis=max_dis,
+            resolution=self._binsize,
+            fdrs=fdrs,
+            sigs=sigs,
+            fold_changes=fold_changes,
+            ignore_single_gap=ignore_single_gap,
+            bin_index=bin_index
+        )
+
+        return peaks_df
+
+    @peaks
+    @lru_cache(maxsize=3)
+    def detect_peaks2d(self):
+        """Balabla"""
+        pass
+
+    @multi_methods
+    def compartments(self):
+        pass
+
+    @compartments
+    @lru_cache(maxsize=3)
+    def decomposition(self,
+                      method: str = 'pca',
+                      balance: bool = True,
+                      ignore_diags: int = 3,
+                      fill_value: float = 1.,
+                      numvecs: int = 3,
+                      sort_fn: callable = corr_sorter,
+                      full: bool = True) -> np.ndarray:
+        """Calculate A/B compartments based on decomposition of intra-chromosomal interaction matrix.\n
+        Currently, two methods are supported for detecting A/B compatements. 'pca' uses principle
+        component analysis based on corr matrix and 'eigen' uses eigen value decomposition based on OE-1 matrix.
+
+        :param method: str. Method name. should be one of 'pca' and 'eigen'.
+        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
+        :param ignore_diags: int. Number of diagonals to ignore.
+        :param fill_value:
+        :param numvecs:
+        :param sort_fn: callable. Callable object used for sorting components based on other infos which can facilitate
+        the dissertation of A/B compartment.
+        :param full: bool. Return non-gap region of output directionality index if full set to False.
+        :return: np.ndarray. Array representing the A/B seperation of compartment. Negative value denotes B compartment.
+        """
+
+        if method in ('pca', 'eigen'):
+            corr = self.corr(
+                balance=balance,
+                full=False,
+                ignore_diags=ignore_diags,
+                fill_value=fill_value
+            )
+        else:
+            raise ValueError("Only support for 'eigrn' or 'pca' ")
+
+        if method == 'pca':
+            vecs = get_pca_compartment(mat=corr, vecnum=numvecs)
+
+        else:
+            _oe = self.oe(balance=balance, full=False) - 1
+            _oe = fill_diags(_oe, ignore_diags=ignore_diags, fill_values=fill_value)
+            vecs = get_eigen_compartment(mat=_oe - 1, vecnum=numvecs)
+
+        vecs = np.array(vecs)
+        if sort_fn is not None:
+            vecs = sort_fn(self, eigvecs=vecs, corr=corr)
+
+        return self.handle_mask(vecs, full)
+
+    # TODO Testing tad related methods.
+    @lru_cache(maxsize=3)
     def fetch_hmm_model(self,
                         num_mix: int = 3,
                         window_size: int = 10,
@@ -449,86 +578,19 @@ class ChromMatrix(object):
 
         return self.HMM_MODELS[key]
 
-    def peaks(self,
-              max_dis: int = 8000000,
-              p: int = 2,
-              w: int = 5,
-              fdrs: tuple = (0.01, 0.01, 0.01, 0.01),
-              sigs: tuple = (0.01, 0.01, 0.01, 0.01),
-              single_fcs: tuple = (1.75, 1.5, 1.5, 1.75),
-              double_fcs: tuple = (2.5, 0, 0, 2.5),
-              ignore_single_gap: bool = True,
-              chunk_size: int = 500,
-              bin_index: bool = True,
-              num_cpus: int = 1) -> pd.DataFrame:
-        """Using hiccups algorithm to detect loops in a band regions close to the main diagonal of hic contact matrix.
+    @multi_methods
+    def tads(self):
+        """Calling peaks"""
 
-        :param max_dis: int. Max distance of loops. Due to the natural property of loops(distance less than 8M) and
-        computation bound of hiccups algorithm, hiccups algorithm are applied only in a band region over the main diagonal
-        to speed up the whole process.
-        :param p: int. Radius of innner square in hiccups. Pixels in this region will not be counted in the calcualtion of background.
-        :param w: int. Radius of outer square in hiccps. Only pixels in this region will be counted in the calculation of background.
-        :param fdrs: tuple. Tuple of fdrs to control the false discovery rate for each background.
-        :param sigs: tuple. Tuple of padjs thresholds for each background.
-        :param single_fcs: tuple. Padjs threshold for each region. Valid peak's padjs should pass all four fold-hange thresholds.
-        :param double_fcs: tuple. Padjs threshold for each region. Valid peak's padjs should pass either one of four fold-change thresholds.
-        :param ignore_single_gap: bool. If ignore small gaps when filtering peaks close to gap regions.
-        :param chunk_size: int. Height of each chunk(submatrix).
-        :param bin_index: bool. Return actual genomic positions of peaks if set to False.
-        :param num_cpus: int. Number of cores to call peaks. Calculation based on chunks and process of find peaks based
-        on different chromosome will run in parallel.
-        :return: pd.Dataframe.
-        """
-
-        def expected_fetcher(key, slices, expected=self.expected()):
-            return expected[slices]
-
-        def observed_fetcher(key, slices, cool=self._cool):
-            row_st, row_ed = slices[0].start + self._start, slices[0].stop + self._start
-            col_st, col_ed = slices[1].start + self._start, slices[1].stop + self._start
-            return cool.matrix()[slice(row_st, row_ed), slice(col_st, col_ed)]
-
-        def factors_fetcher(key, slices, factors=self._weights):
-            return factors[slices[0]], factors[slices[1]]
-
-        band_width = max_dis // self._binsize
-        if chunk_size is None:
-            chunk_size = band_width
-        chunks = get_chunk_slices(
-            length=self.shape[0],
-            band_width=band_width,
-            height=chunk_size,
-            ov_length=2 * w
-        )
-        chunks = ((self.chrom, chunk) for chunk in chunks)
-        kernels = fetch_regions(p, w, kernel=True)
-
-        peaks_df = hiccups(
-            expected_fetcher=expected_fetcher,
-            observed_fetcher=observed_fetcher,
-            factors_fetcher=factors_fetcher,
-            chunks=chunks,
-            kernels=kernels,
-            num_cpus=num_cpus,
-            max_dis=max_dis,
-            resolution=self._binsize,
-            fdrs=fdrs,
-            sigs=sigs,
-            single_fcs=single_fcs,
-            double_fcs=double_fcs,
-            ignore_single_gap=ignore_single_gap,
-            bin_index=bin_index
-        )
-
-        return peaks_df
-
-    def tads(self,
-             hmm_model=None,
-             window_size=10,
-             ignore_diags: int = 1,
-             method='standard',
-             num_mix: int = 3,
-             calldomain_fn=call_domain) -> pd.DataFrame:
+    @tads
+    @lru_cache(maxsize=3)
+    def di_hmm(self,
+               hmm_model=None,
+               window_size=10,
+               ignore_diags: int = 1,
+               method='standard',
+               num_mix: int = 3,
+               calldomain_fn=call_domain) -> pd.DataFrame:
         """
 
         :param hmm_model:
@@ -553,70 +615,6 @@ class ChromMatrix(object):
             tads.extend((st + start, ed + start) for st, ed in domain)
 
         return pd.DataFrame(tads)
-
-    @lazy_method
-    def compartments(self,
-                     method: str = 'pca',
-                     balance: bool = True,
-                     ignore_diags: int = 3,
-                     vec_range: Union[slice, int] = slice(0, 3),
-                     com_range: Union[slice, int] = slice(0, 1),
-                     sort_fn: callable = corr_sorter,
-                     full: bool = True) -> np.ndarray:
-        """Calculate A/B compatments.
-
-        :param method: str. Currently, two methods are supported for detecting A/B compatements. 'pca' uses principle
-        component analysis based on corr matrix and 'eigen' uses eigen value decomposition based on OE-1 matrix.
-        :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
-        :param ignore_diags: int. Number of diagonals to ignore.
-        :param vec_range: Union[slice, int]. Choose a certain subset of vectors sorted by eigen values in ascending
-        order for detecting A/B compartment.
-        :param com_range: Union[slice, int]. Choose a certain subset of output components sorted by sort_fn.
-        :param sort_fn: callable. Callable object used for sorting components based on other infos which can facilitate
-        the dissertation of A/B compartment.
-        :param full: bool. Return non-gap region of output directionality index if full set to False.
-        :return: np.ndarray. Array representing the A/B seperation of compartment. Negative value denotes B compartment.
-        """
-        vec_range = check_slice(vec_range)
-        com_range = check_slice(com_range)
-        vecnum = vec_range.stop
-
-        if (self.shape[0] <= 1) or (self.shape[1] <= 1):
-            vecs = np.array([[np.nan] for _ in range(vecnum)])
-        elif method == 'pca':
-            corr = self.corr(balance=balance, full=False, ignore_diags=ignore_diags)
-            if (np.all(np.isnan(corr))):
-                vecs = np.full((vecnum, min(1, self.shape[0])), np.nan)
-            else:
-                vecs = get_pca_compartment(
-                    mat=corr,
-                    vecnum=vecnum
-                )
-        elif method == 'eigen':
-            vecs = get_eigen_compartment(
-                mat=self.oe(balance=balance, full=False, ignore_diags=ignore_diags) - 1,
-                vecnum=vecnum
-            )
-        else:
-            raise ValueError("Only support for 'eigrn' or 'pca' ")
-        vecs = vecs[vec_range]
-        if sort_fn is not None:
-            vecs = sort_fn(self, eigvecs=vecs, balance=balance, ignore_diags=ignore_diags)
-        vecs = vecs[com_range]
-        if vecs.shape[0] == 1:
-            vecs = vecs.ravel()
-
-        if not full:
-            return vecs
-        else:
-            array_func = partial(np.full, fill_value=np.nan, dtype=vecs.dtype)
-            if len(vecs.shape) == 2:
-                nan_mat = array_func(shape=(vecs.shape[0], self.shape[1]))
-                nan_mat[:, self.mask] = vecs
-            else:
-                nan_mat = array_func(shape=self.shape[1])
-                nan_mat[self.mask] = vecs
-            return nan_mat
 
 
 if __name__ == "__main__":

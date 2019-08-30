@@ -13,10 +13,21 @@ import numpy as np
 
 from .api import ChromMatrix as _ChromMatrix
 from .compartment import corr_sorter, plain_sorter
-from .peaks import hiccups, fetch_regions, expected_fetcher, observed_fetcher, factors_fetcher, chunks_gen
-from .utils import CPU_CORE, RayWrap, get_logger
+from .peaks import (
+    hiccups,
+    fetch_kernels,
+    expected_fetcher,
+    observed_fetcher,
+    factors_fetcher,
+    chunks_gen
+)
+from .utils import (
+    CPU_CORE,
+    RayWrap,
+    get_logger,
+    records2bigwigs
+)
 from . import config
-
 
 click.option = partial(click.option, show_default=True)
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -25,12 +36,18 @@ CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 def fetch_chrom_dict(cool):
     ray = RayWrap()
     ChromMatrix = ray.remote(_ChromMatrix)
+    log = get_logger()
 
     co = cooler.Cooler(cool)
-
     records = co.bins()[['chrom', 'start', 'end']][:].copy()
+
     chrom_dict = OrderedDict()
     for chrom in co.chromnames:
+        weights = np.array(co.bins().fetch(chrom)['weights'])
+        badbin_ratio = np.isnan(weights) / weights.size
+        if badbin_ratio < 0.5:
+            log.warning(f"Skipped chromosome: {chrom} due to high percentage of bad regions.")
+            continue
         chrom_dict[chrom] = ChromMatrix.remote(co, chrom)
 
     return co, records, chrom_dict
@@ -39,24 +56,29 @@ def fetch_chrom_dict(cool):
 @click.group(context_settings=CONTEXT_SETTINGS)
 @click.option("--log-file", help="The log file, default output to stderr.")
 @click.option("--debug", is_flag=True,
-    help="Open debug mode, disable ray.")
+              help="Open debug mode, disable ray.")
 def cli(log_file, debug):
-    log = logging.getLogger() # root logger
+    log = logging.getLogger()  # root logger
     if log_file:
         handler = logging.FileHandler(log_file)
     else:
         handler = logging.StreamHandler(sys.stderr)
+
     fomatter = logging.Formatter(
         fmt=config.LOGGING_FMT,
-        datefmt=config.LOGGING_DATE_FMT)
+        datefmt=config.LOGGING_DATE_FMT
+    )
     handler.setFormatter(fomatter)
     log.addHandler(handler)
+
     if debug:
         config.DEBUG = True
         log.setLevel(logging.DEBUG)
     else:
         log.setLevel(logging.INFO)
 
+
+# ----------------------------------------------peaks--------------------------------------------
 
 @cli.group()
 def peaks():
@@ -94,26 +116,20 @@ def peaks():
     help='Height of each chunk(submatrix).'
 )
 @click.option(
-    "--fdrs", nargs=4, default=(0.01, 0.01, 0.01, 0.01),
+    "--fdrs", nargs=4, default=(0.1, 0.1, 0.1, 0.1),
     type=click.Tuple([float, float, float, float]),
     help='Tuple of fdrs to control the false discovery rate for each background.'
 )
 @click.option(
-    "--sigs", nargs=4, default=(0.01, 0.01, 0.01, 0.01),
+    "--sigs", nargs=4, default=(0.1, 0.1, 0.1, 0.1),
     type=click.Tuple([float, float, float, float]),
     help='Tuple of padjs thresholds for each background.'
 )
 @click.option(
-    "--single-fcs", nargs=4, default=(1.75, 1.5, 1.5, 1.75),
+    "--fold_changes", nargs=4, default=(1.5, 1.5, 1.5, 1.5),
     type=click.Tuple([float, float, float, float]),
-    help='Padjs threshold for each region. '
-         'Valid peak\'s padjs should pass all four fold-hange thresholds.'
-)
-@click.option(
-    "--double-fcs", nargs=4, default=(2.5, 0., 0., 2.5),
-    type=click.Tuple([float, float, float, float]),
-    help='Padjs threshold for each region. '
-         'Valid peak\'s padjs should pass either one of four fold-change thresholds.'
+    help='Fold change threshold for each region. '
+         'Valid peak\'s fold changes should pass all four fold-change-thresholds.'
 )
 @click.option(
     "--ignore-single-gap", nargs=1, type=bool, default=True,
@@ -127,11 +143,10 @@ def peaks():
     '--nproc', '-n', type=int, nargs=1, default=25,
     help='Number of cores for calculation'
 )
-def call_by_hiccups(cool, output,
-                    max_dis, inner_radius, outer_radius, chunk_size,
-                    fdrs, sigs, single_fcs, double_fcs,
-                    ignore_single_gap, bin_index,
-                    nproc):
+def hiccups(cool, output,
+            max_dis, inner_radius, outer_radius,
+            chunk_size, fdrs, sigs, fold_changes,
+            ignore_single_gap, bin_index, nproc):
     """Call peaks by using hiccups method."""
     ray = RayWrap(num_cpus=nproc)
     co, _, chrom_dict = fetch_chrom_dict(cool)
@@ -155,7 +170,7 @@ def call_by_hiccups(cool, output,
         band_width=max_dis // co.binsize,
         height=chunk_size,
         ov_length=2 * outer_radius)
-    kernels = fetch_regions(inner_radius, outer_radius, kernel=True)
+    kernels = fetch_kernels(inner_radius, outer_radius)
 
     peaks_df = hiccups(
         expected_fetcher=expected,
@@ -163,13 +178,14 @@ def call_by_hiccups(cool, output,
         factors_fetcher=factors,
         chunks=chunks,
         kernels=kernels,
+        inner_radius=inner_radius,
+        outer_radius=outer_radius,
         num_cpus=nproc,
         max_dis=max_dis,
         resolution=co.binsize,
         fdrs=fdrs,
         sigs=sigs,
-        single_fcs=single_fcs,
-        double_fcs=double_fcs,
+        fold_changes=fold_changes,
         ignore_single_gap=ignore_single_gap,
         bin_index=bin_index
     )
@@ -181,18 +197,28 @@ def call_by_hiccups(cool, output,
 @click.argument(
     "file", nargs=1, type=click.File('r')
 )
-def call_by_cloops(file):
+def cloops(file):
     click.echo("Not implemented yet.")
     pass
 
 
+@peaks.command()
+@click.argument(
+    "file", nargs=1, type=click.File('r')
+)
+def peaks2d(file):
+    click.echo("Not implemented yet.")
+    pass
+
+
+# ----------------------------------------------tads----------------------------------------
 @cli.group()
-def tad():
+def tads():
     """Tools for topological associated domain analysis."""
     pass
 
 
-@tad.command()
+@tads.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -234,17 +260,19 @@ def di_score(cool, output, balance, window_size, ignore_diags, nproc):
             ignore_diags=ignore_diags,
             method='adaptive'
         )
-    standard_di = np.concatenate([ray.get(standard_di_dict[key])
-                                  for key in chrom_dict.keys()])
-    adp_di = np.concatenate([ray.get(adap_di_dict[key])
-                             for key in chrom_dict.keys()])
+    standard_di = np.concatenate(
+        [ray.get(standard_di_dict[key]) for key in chrom_dict.keys()]
+    )
+    adp_di = np.concatenate(
+        [ray.get(adap_di_dict[key]) for key in chrom_dict.keys()]
+    )
 
     records['standard_di'] = standard_di
     records['adptive_di'] = adp_di
     records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
 
 
-@tad.command()
+@tads.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -283,14 +311,15 @@ def insu_score(cool, output, balance, window_size, normalize, ignore_diags, npro
             ignore_diags=ignore_diags,
             normalize=normalize
         )
-    insu_scores = np.concatenate([ray.get(insu_score_dict[key])
-                                  for key in chrom_dict.keys()])
+    insu_scores = np.concatenate(
+        [ray.get(insu_score_dict[key]) for key in chrom_dict.keys()]
+    )
 
     records['insu_score'] = insu_scores
     records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
 
 
-@tad.command()
+@tads.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -306,10 +335,11 @@ def insu_score(cool, output, balance, window_size, normalize, ignore_diags, npro
     help='Number of cores for calculation'
          'This step is not only time consuming but also memory-intensive.'
 )
-def call_tad(cool, output, balance, nproc):
+def di_hmm(cool, output, balance, nproc):
     click.echo("Not implemented yet.")
 
 
+# ----------------------------------------------expected-----------------------------------------
 @cli.command()
 @click.argument(
     'cool', type=str, nargs=1
@@ -333,14 +363,22 @@ def expected(cool, output, balance, nproc):
     decay_dict = OrderedDict()
     for key, chrom in chrom_dict.items():
         decay_dict[key] = chrom.decay.remote(balance=balance)
-    decays = np.concatenate([ray.get(decay_dict[key])
-                             for key in decay_dict.keys()])
+    decays = np.concatenate(
+        [ray.get(decay_dict[key]) for key in decay_dict.keys()]
+    )
 
     records['expected'] = decays
     records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
 
 
-@cli.command()
+# ----------------------------------------compartments-------------------------------------
+@cli.group()
+def compartments():
+    """Tools for topological associated domain analysis."""
+    pass
+
+
+@compartments.command()
 @click.argument(
     'cool', type=str, nargs=1
 )
@@ -375,8 +413,9 @@ def expected(cool, output, balance, nproc):
     '--nproc', '-n', type=int, nargs=1, default=25,
     help='Number of cores for calculation'
 )
-def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, out_fmt, nproc):
-    """Compute A/B compartment from a .cool file."""
+def decomposition(cool, output, balance, method,
+                  numvecs, ignore_diags, sort, out_fmt, nproc):
+    """Compute A/B compartment from a .cool file based on decomposition of intra-interaction matrix."""
     log = get_logger()
     log.info("Call compartments")
     log.debug(locals())
@@ -386,29 +425,28 @@ def compartment(cool, output, balance, method, numvecs, ignore_diags, sort, out_
 
     compartment_dict = OrderedDict()
     for key, chrom in chrom_dict.items():
-        compartment_dict[key] = chrom.compartments.remote(
+        compartment_dict[key] = chrom.compartments.decomposition.remote(
             method=method,
             balance=balance,
-            vec_range=numvecs,
-            com_range=numvecs,
+            numvecs=numvecs,
             sort_fn=corr_sorter if sort else plain_sorter,
             full=True,
             ignore_diags=ignore_diags
         )
         log.debug(compartment_dict[key])
-    compartments = np.hstack([ray.get(compartment_dict[key])
-                              for key in chrom_dict.keys()])
+    coms = np.hstack(
+        [ray.get(compartment_dict[key]) for key in chrom_dict.keys()]
+    )
 
-    if len(compartments.shape) == 2:
-        for i in range(compartments.shape[0]):
-            records['com_{}'.format(i)] = compartments[i]
+    if len(coms.shape) == 2:
+        for i in range(coms.shape[0]):
+            records['com_{}'.format(i)] = coms[i]
     else:
-        records['com_0'] = compartments
+        records['com_0'] = coms
 
     if out_fmt == 'tab':
         records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
     elif out_fmt == 'bigwig':
-        from .utils import records2bigwigs
         records2bigwigs(records, output.name)
     else:
         raise IOError("Only support tab or bigwig output format.")
