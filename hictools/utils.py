@@ -15,7 +15,6 @@ from typing import Union, Iterable
 import numpy as np
 from scipy import sparse
 import pandas as pd
-import pyBigWig
 
 CPU_CORE = multiprocessing.cpu_count()
 
@@ -43,6 +42,7 @@ def records2bigwigs(df: pd.DataFrame, prefix: str):
     :param df: records dataframe, contain fields: chrom, start, end.
     :param prefix: prefix of output bigwig files.
     """
+    import pyBigWig
     required_fields = ['chrom', 'start', 'end']
     assert all([(f in df) for f in required_fields]), \
         f"records dataframe need fields: {', '.join(required_fields)}"
@@ -476,7 +476,7 @@ class RayWrap(object):
     _cache = {}  # store mapping from task id to result obj
 
     def __init__(self, *args,
-                 enable_ray: Optional[bool] = None,
+                 enable_ray: bool = None,
                  log_file: str = "./ray.log",
                  **kwargs):
         if enable_ray is None:

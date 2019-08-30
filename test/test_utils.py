@@ -1,4 +1,8 @@
-from ..hictools.utils import multi_methods
+import sys
+
+sys.path.append('../')
+
+from hictools.utils import multi_methods
 
 
 def test_multi_methods():
