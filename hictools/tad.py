@@ -1,6 +1,4 @@
-"""
-Tools for topological associated domain analysis.
-"""
+"""Tools for topological associated domain analysis."""
 
 from collections import namedtuple
 from typing import Union

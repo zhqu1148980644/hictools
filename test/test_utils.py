@@ -1,17 +1,34 @@
 import sys
+import pytest
 
 sys.path.append('../')
 
-from hictools.utils import multi_methods
+
+def _test_multi_methods_with_dups(self):
+    from hictools.utils import multi_methods
+    with pytest.raises(RuntimeError):
+        class Test(object):
+            @multi_methods()
+            def method_a(self):
+                pass
+
+            @method_a
+            def a1(self):
+                pass
+
+            @method_a()
+            def a1(self):
+                pass
 
 
-def test_multi_methods():
+def _test_multi_methods_features(self):
+    from hictools.utils import multi_methods
     class Test(object):
         def __init__(self, name, msg):
             self.name = name
             self.msg = msg
 
-        @multi_methods()
+        @multi_methods
         def method_a(self):
             """There are {num} A methods. {methods}"""
 
@@ -27,7 +44,7 @@ def test_multi_methods():
 
         @multi_methods
         def method_b(self):
-            "There are {num} B methods. {methods}"
+            """There are {num} B methods. {methods}"""
 
         @method_b.register()
         def b1(self, numvecs=3, balance=False):
@@ -44,5 +61,6 @@ def test_multi_methods():
     assert test.msg == 'TEST MSG'
 
 
-if __name__ == '__main__':
-    test_multi_methods()
+class TestMultiMethods(object):
+    test_multi_methods_with_dups = _test_multi_methods_with_dups
+    test_multi_methods_features = _test_multi_methods_features

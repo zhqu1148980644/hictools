@@ -1,5 +1,7 @@
-from subprocess import check_call
+import sys
+import logging
 from os.path import join
+from subprocess import check_call
 import fire
 
 DOWNLOAD_DIR = "./download"
@@ -12,8 +14,6 @@ TEST_RESOLUTIONS = [40000, 10000, 5000]
 assert set(TEST_RESOLUTIONS) in set(RESOLUTIONS)
 
 
-import sys
-import logging
 log = logging.getLogger("benchmark")
 LOGGING_FMT = "%(asctime)s: %(message)s"
 LOGGING_DATE_FMT = "%m/%d/%y %H:%M:%S"
@@ -27,11 +27,8 @@ log.addHandler(hd_f)
 log.setLevel(logging.DEBUG)
 
 
-
 def timethis(func=None, proc_name=None):
-    '''
-    Decorator that reports the execution time.
-    '''
+    """Decorator that reports the execution time."""
     from functools import wraps, partial
     from datetime import datetime
     if func is None:
@@ -45,8 +42,9 @@ def timethis(func=None, proc_name=None):
         result = func(*args, **kwargs)
         end = datetime.now()
         log.info(f"[{proc_name}] END")
-        log.info( f"[{proc_name}] RUN_TIME: {end - start}")
+        log.info(f"[{proc_name}] RUN_TIME: {end - start}")
         return result
+
     return wrapper
 
 
@@ -60,24 +58,24 @@ def mk_dir(dir_):
 
 @timethis
 def prepare_cool(url=COOL_URL):
+    import os
+    import re
+    import wget
+    from os.path import split
+    from cooler.api import Cooler
     log.info(f"download cool file from {url}")
     down_dir = mk_dir(DOWNLOAD_DIR)
-    from os.path import split
     cool_file = split(url)[-1]
-    import wget
-    cool_path = str(down_dir/cool_file)
+    cool_path = str(down_dir / cool_file)
     wget.download(url, cool_path)
 
     log.info("Zoomify cool")
-    from cooler.api import Cooler
     c = Cooler(cool_path)
     resos = [str(r) for r in RESOLUTIONS if r >= c.binsize]
     check_call(["cooler", "zoomify", "--balance", "-p", "30", "-r", ",".join(resos), cool_path])
-    import os
     target = MCOOL
     if os.path.exists(target):
         os.unlink(target)
-    import re
     mcool_path = re.sub(".cool$", ".mcool", cool_path)
     os.symlink(mcool_path, target)
 
@@ -117,5 +115,5 @@ def test_call_compartment(num_cpus=20):
     mk_dir(RESULT_DIR)
 
 
-
-fire.Fire()
+if __name__ == '__main__':
+    fire.Fire()

@@ -1,6 +1,4 @@
-"""
-Tools for compartment analysis.
-"""
+"""Tools for compartment analysis."""
 # TODO(zhongquan789@126.com): handling intra and inter interaction
 
 from typing import Callable
@@ -33,7 +31,7 @@ def get_decay(mat: np.ndarray,
     :return: np.ndarray.
     """
     length = mat.shape[0]
-    ndiags = ndiags if ndiags is not None else length
+    ndiags = ndiags if (ndiags is not None) else length
     bins_span = span_fn(0, length)
     decay = np.zeros(length, dtype=mat.dtype)
 
@@ -162,9 +160,9 @@ def corr_sorter(chrom_matrix, eigvecs: np.ndarray, corr=None, **kwargs):
         com_mask1 = compartment > 0
         com_mask2 = compartment < 0
         return (
-            np.mean(mat[np.ix_(com_mask1, com_mask1)]),
-            np.mean(mat[np.ix_(com_mask2, com_mask2)]),
-            np.mean(mat[np.ix_(com_mask1, com_mask2)])
+            np.nanmean(mat[np.ix_(com_mask1, com_mask1)]),
+            np.nanmean(mat[np.ix_(com_mask2, com_mask2)]),
+            np.nanmean(mat[np.ix_(com_mask1, com_mask2)])
         )
 
     coms = []
@@ -172,7 +170,11 @@ def corr_sorter(chrom_matrix, eigvecs: np.ndarray, corr=None, **kwargs):
         # In some cases the divergence between max-value in A/B is too large.
         diverse = np.abs(np.min(component)) / np.max(component)
         coma = component > 0
-        ratio = len(np.where(coma)[0]) / len(np.where(~coma)[0])
+        num_b = len(np.where(~coma)[0])
+        if num_b == 0:
+            ratio = 1
+        else:
+            ratio = (coma.size - num_b) / coma.size
         if ((diverse > 10)
                 or (diverse < 0.1)
                 or (ratio > 15)
@@ -380,7 +382,7 @@ class SliceMixin(object):
     @staticmethod
     def _fill_slice(slice_, length):
         if isinstance(slice_, int):
-            slice_ = slice(slice_, slice_ + 1, 1)
+            start, stop, step = slice_, slice_ + 1, 1
         else:
             start, stop, step = slice_.start, slice_.stop, slice_.step
             if start is None:
@@ -389,9 +391,10 @@ class SliceMixin(object):
                 stop = length
             if step is None:
                 step = 1
-            slice_ = slice(start, stop, step)
+        start = start if (start >= 0) else 0
+        stop = stop if (stop <= length) else length
 
-        return slice_
+        return slice(start, stop, step)
 
     @staticmethod
     def _is_slices(slices):
@@ -404,9 +407,6 @@ class SliceMixin(object):
             return isinstance(slices, slice)
 
     def _check_slices(self, slices, lengths, check_forward=False):
-        if not self._is_slices(slices):
-            raise TypeError('Not slices')
-
         if isinstance(slices, slice):
             slices = (slices,) * len(lengths)
 
@@ -428,8 +428,8 @@ class Toeplitz(SliceMixin):
 
     def __getitem__(self, items):
         row_slice, col_slice = tuple(self._check_slices(
-            items,
-            (self._col.size, self._row.size),
+            slices=items,
+            lengths=(self._col.size, self._row.size),
             check_forward=True)
         )
         n_diags = col_slice.start - row_slice.start

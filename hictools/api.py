@@ -1,6 +1,4 @@
-"""
-Interface.
-"""
+"""Interface."""
 from functools import lru_cache
 from functools import partial
 from typing import Union, Callable, Tuple
@@ -200,7 +198,7 @@ class ChromMatrix(object):
 
         :return: np.ndarray. 2-d ndarray with gap regions set to False.
         """
-        return self._mask[:, np.newaxis] * self.mask[np.newaxis, :]
+        return self.mask[:, np.newaxis] * self.mask[np.newaxis, :]
 
     @LazyProperty
     def mask_index(self) -> Tuple[np.ndarray, np.ndarray]:
@@ -213,7 +211,7 @@ class ChromMatrix(object):
     def handle_mask(self, array, full):
         """Automatically handle mask."""
         full_length = self.shape[0]
-        is_matrix, shape = len(array.shape) == 2, array.shape
+        is_matrix, shape = (len(array.shape) == 2), array.shape
         intact = shape[0] == full_length
         if len(shape) == 2:
             intact = intact or (shape[1] == full_length)
@@ -221,23 +219,23 @@ class ChromMatrix(object):
         if intact == full:
             return array
         elif intact and not full:
-            return array[self.mask if len(shape) != 2 else self.mask_index]
+            return array[self.mask if (len(shape)) != 2 else self.mask_index]
         else:
             predict_length = self.mask.sum()
             fit = shape[0] == predict_length
             if is_matrix:
-                fit = fit or shape[1] == predict_length
+                fit = fit or (shape[1] == predict_length)
             if not fit:
                 raise ValueError(f"Array of shape {shape} can't be unmasked."
                                  f"Original shape is {(full_length, full_length)}")
             nan_mat_fn = partial(np.full, fill_value=np.nan, dtype=array.dtype)
 
-            if is_matrix and shape[0] != shape[1]:
-                array = array.T if max(shape) == shape[0] else array
-                nan_mat = nan_mat_fn(shape=(shape[0], full_length))
+            if is_matrix and (shape[0] != shape[1]):
+                array = array.T if (max(shape) == shape[0]) else array
+                nan_mat = nan_mat_fn(shape=(min(shape), full_length))
                 nan_mat[:, self.mask] = array
 
-            elif is_matrix and shape[0] == shape[1]:
+            elif is_matrix and (shape[0] == shape[1]):
                 nan_mat = nan_mat_fn(shape=(full_length, full_length))
                 nan_mat[self.mask_index] = array
 
@@ -336,7 +334,7 @@ class ChromMatrix(object):
 
         :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
         :param ignore_diags: int. Number of diagonals to ignore. Values in these ignored diagonals will set to 'diag_value'.
-        :param fill_value: float. Value to fill ignored diagonals of output corr matrix.
+        :param fill_value: float. Value to fill ignored diagonals of OE mattrix.
         :param full: bool. Return non-gap region of output corr matrix if full set to False.
         :return: np.ndarray. 2-d array representing corr matrix.
         """
@@ -491,7 +489,7 @@ class ChromMatrix(object):
 
     @peaks
     @lru_cache(maxsize=3)
-    def detect_peaks2d(self):
+    def _detect_peaks2d(self):
         """Balabla"""
         pass
 
@@ -501,14 +499,15 @@ class ChromMatrix(object):
 
     @compartments
     @lru_cache(maxsize=3)
-    def decomposition(self,
-                      method: str = 'pca',
-                      balance: bool = True,
-                      ignore_diags: int = 3,
-                      fill_value: float = 1.,
-                      numvecs: int = 3,
-                      sort_fn: callable = corr_sorter,
-                      full: bool = True) -> np.ndarray:
+    @suppress_warning(warning_msg=RuntimeWarning)
+    def _decomposition(self,
+                       method: str = 'pca',
+                       balance: bool = True,
+                       ignore_diags: int = 3,
+                       fill_value: float = 1.,
+                       numvecs: int = 3,
+                       sort_fn: callable = corr_sorter,
+                       full: bool = True) -> np.ndarray:
         """Calculate A/B compartments based on decomposition of intra-chromosomal interaction matrix.\n
         Currently, two methods are supported for detecting A/B compatements. 'pca' uses principle
         component analysis based on corr matrix and 'eigen' uses eigen value decomposition based on OE-1 matrix.
@@ -584,13 +583,13 @@ class ChromMatrix(object):
 
     @tads
     @lru_cache(maxsize=3)
-    def di_hmm(self,
-               hmm_model=None,
-               window_size=10,
-               ignore_diags: int = 1,
-               method='standard',
-               num_mix: int = 3,
-               calldomain_fn=call_domain) -> pd.DataFrame:
+    def _di_hmm(self,
+                hmm_model=None,
+                window_size=10,
+                ignore_diags: int = 1,
+                method='standard',
+                num_mix: int = 3,
+                calldomain_fn=call_domain) -> pd.DataFrame:
         """
 
         :param hmm_model:
