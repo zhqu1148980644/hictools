@@ -1,6 +1,4 @@
-"""
-Command line tools.
-"""
+"""Command line tools."""
 
 import sys
 from collections import OrderedDict
@@ -24,9 +22,9 @@ from .peaks import (
 from .utils import (
     CPU_CORE,
     RayWrap,
-    get_logger,
-    records2bigwigs
+    get_logger
 )
+from .io import records2bigwigs
 from . import config
 
 click.option = partial(click.option, show_default=True)
@@ -43,9 +41,9 @@ def fetch_chrom_dict(cool):
 
     chrom_dict = OrderedDict()
     for chrom in co.chromnames:
-        weights = np.array(co.bins().fetch(chrom)['weights'])
-        badbin_ratio = np.isnan(weights) / weights.size
-        if badbin_ratio < 0.5:
+        weight = np.array(co.bins().fetch(chrom)['weight'])
+        badbin_ratio = np.isnan(weight) / weight.size
+        if badbin_ratio > 0.5:
             log.warning(f"Skipped chromosome: {chrom} due to high percentage of bad regions.")
             continue
         chrom_dict[chrom] = ChromMatrix.remote(co, chrom)

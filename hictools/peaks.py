@@ -1,6 +1,4 @@
-"""
-Tools for Loop-detection analysis.
-"""
+"""Tools for Loop-detection analysis."""
 # TODO implement APA.
 # TODO Refine hiccupps method(clustering step). Peaks are not as good as that produced in the original paper(Rao 2014).
 # TODO implement cloops algorithm.
