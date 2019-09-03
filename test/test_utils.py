@@ -1,7 +1,7 @@
 import sys
 import pytest
 
-sys.path.append('../')
+sys.path.insert(0, '../')
 
 
 def _test_multi_methods_with_dups(self):

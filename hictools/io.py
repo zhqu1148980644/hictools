@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import h5py
 import pyBigWig
-import cooler
 
 from .utils import get_logger
 
@@ -343,5 +342,3 @@ def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = 
     cool.file.close()
 
     return True
-
-

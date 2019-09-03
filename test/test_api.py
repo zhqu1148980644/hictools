@@ -5,6 +5,7 @@ import pandas as pd
 from scipy import sparse
 from scipy.linalg import toeplitz
 
+
 class TestChromMatrix(object):
     def test_properties(self, get_chrom):
         chrom = get_chrom(100000)

@@ -1,7 +1,7 @@
 import os
 import sys
 
-sys.path.append('../')
+sys.path.insert(0, '../')
 from hictools.io import extract_cool
 
 COOL = '/store/qzhong/test/Rao2014-K562-MboI-allreps-filtered.10kb.cool'
