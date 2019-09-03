@@ -282,7 +282,6 @@ def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = 
     sub_cool.attrs['Included chroms'] = list(chrom_info.keys())
 
     # create pixels group.
-    bin1_id = cool['pixels/bin1_id']
     bin2_id = cool['pixels/bin2_id']
     count = cool['pixels/count']
     old_indptr = cool['indexes/bin1_offset']
@@ -291,18 +290,23 @@ def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = 
     for chrom, info in chrom_info.items():
         if intra_only:
             offset = info.pixel_offset
-            for row_index, row_id in enumerate(range(info.bin_st, info.bin_ed)):
-                offset_st, offset_ed = offset[row_index: row_index + 2]
-                if offset_st == offset_ed:
-                    continue
-
-                sub_bin2 = bin2_id[offset_st: offset_ed]
-                first = offset_st + np.searchsorted(sub_bin2, info.bin_st, 'left')
-                last = offset_st + np.searchsorted(sub_bin2, info.bin_ed - 1, 'right')
-                new_bin1_id.append(bin1_id[first: last])
-                new_bin2_id.append(bin2_id[first: last])
-                new_count.append(count[first: last])
-                new_indptr[row_id + 1] = last - first
+            offset_st, offset_ed = offset[0], offset[-1]
+            all_bin2 = bin2_id[offset_st: offset_ed]
+            all_count = count[offset_st: offset_ed]
+            dtype = all_bin2.dtype
+            for row_id, st, ed in zip(
+                    range(info.bin_st, info.bin_ed),
+                    offset[:-1] - offset_st,
+                    offset[1:] - offset_st
+            ):
+                bin2 = all_bin2[st: ed]
+                bin2_st = np.searchsorted(bin2, info.bin_st, 'left')
+                bin2_ed = np.searchsorted(bin2, info.bin_ed - 1, 'right')
+                sub_bin2 = bin2[bin2_st: bin2_ed]
+                new_bin2_id.append(sub_bin2)
+                new_bin1_id.append(np.full(sub_bin2.size, row_id, dtype=dtype))
+                new_count.append(all_count[st + bin2_st: st + bin2_ed])
+                new_indptr[row_id + 1] = bin2_ed - bin2_st
         else:
             raise NotImplementedError('Not implemented. Only support intra-only extraction.')
 

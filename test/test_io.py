@@ -7,7 +7,7 @@ from hictools.io import extract_cool
 COOL = '/store/qzhong/test/Rao2014-K562-MboI-allreps-filtered.10kb.cool'
 
 
-def _test_extract_cool(tmp_path):
+def test_extract_cool(tmp_path):
     if os.path.isfile(COOL):
         sub_cool = tmp_path / 'test.cool'
         extract_cool(
