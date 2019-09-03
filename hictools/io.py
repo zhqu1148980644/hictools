@@ -195,10 +195,8 @@ def records2bigwigs(df: pd.DataFrame, prefix: str):
                      if col not in required_fields)
     bigwigs = {}
     for col in val_cols:
-        import os
-        from os.path import exists
         path_ = prefix + '.' + col + '.bw'
-        if exists(path_):
+        if os.path.exists(path_):
             os.remove(path_)
         bigwigs[col] = pyBigWig.open(path_, 'w')
 

@@ -8,7 +8,7 @@ import warnings
 import numbers
 from collections import UserDict
 from functools import partial, wraps
-from typing import Union, Iterable
+from typing import Union, Iterable, Callable
 from contextlib import redirect_stderr
 
 import numpy as np
@@ -258,7 +258,6 @@ class multi_methods(object):
         if func is None:
             return partial(self.register, **kwargs)
         else:
-
             func.__name__ = func.__name__.strip('_')
             self._methods[func.__name__] = func
 
@@ -332,14 +331,21 @@ class RayWrap(object):
 
         return _Actor
 
-    def _mimic_func(self, obj):
+    def _mimic_func(self, obj:Callable):
         """ mimic remote function """
+        log = get_logger()
 
-        def wrapper(*args, **kwargs):
-            print(f"Remote function '{obj.__name__}' is called.")
-            id_ = f"{obj.__name__}_{args}_{kwargs}"
+        def _remote(*args, **kwargs):
+            log.debug(f"Remote function '{obj.__qualname__}' is called.")
+            id_ = f"{obj.__qualname__}_{args}_{kwargs}"
             self._cache[id_] = obj(*args, **kwargs)
             return id_
+
+        @wraps(obj)
+        def wrapper(*args, **kwargs):
+            return obj(*args, **kwargs)
+
+        wrapper.remote = _remote
 
         return wrapper
 
