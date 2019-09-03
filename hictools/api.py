@@ -4,6 +4,8 @@ from functools import partial
 from typing import Union, Callable, Tuple
 
 import cooler
+from cooler.core import CSRReader
+from cooler.util import open_hdf5
 import numpy as np
 import pandas as pd
 from scipy import sparse
@@ -145,44 +147,54 @@ def infer_mat(mat,
 class ChromMatrix(object):
     HMM_MODELS = {}
 
-    def __init__(self, cool: Union[cooler.Cooler, str],
+    def __init__(self, co: Union[cooler.Cooler, str],
                  chrom: str,
                  span_fn: Callable[[int, int], np.ndarray] = linear_bins):
         """
 
-        :param cool: Union[cooler.Cooler, str]. Path of .cool file or cooler.Cooler object.
+        :param co: Union[cooler.Cooler, str]. Path of .cool file or cooler.Cooler object.
         :param chrom: str: Chromosome name.
         :param span_fn: Callable[[int, int], np.ndarray]. Callable object return a array determine the calculation of decay.
         """
-        if isinstance(cool, str):
-            cool = cooler.Cooler(cool)
-        self.chrom = chrom
-        self._observed = self._get_sparse(cool, chrom)
-        bins = cool.bins().fetch(chrom)
-        self._weights = np.array(bins['weight']).astype(np.float32)
-        self._start = bins.index.min()
+        if isinstance(co, str):
+            co = cooler.Cooler(co)
+        self._observed, self._weights, self._start = self._get_info(co, chrom)
         self._mask = ~np.isnan(self._weights)
-        self._cool = cool
-        self._binsize = cool.binsize
+        self._binsize = co.binsize
         self._span_fn = span_fn
+        self.cool = co
+        self.chrom = chrom
         self.shape = self._observed.shape
 
     @staticmethod
-    def _get_sparse(cool: cooler.Cooler, chrom: str) -> sparse.coo_matrix:
-        """Fetch a triangular sparse matrix with no value in gap regions.
+    def _get_info(co: cooler.Cooler,
+                  chrom: str) -> Tuple[sparse.coo_matrix, np.ndarray, int]:
+        """Fetch a triangular sparse matrix with no value in gap regions(The original data in hdf5).
 
-        :param cool: cooler.Cooler.
+        :param co: cooler.Cooler.
         :param chrom: str.
         :return: sparse.coo_matrix.
         """
-        mat = sparse.triu(
-            cool.matrix(sparse=True, balance=True).fetch(chrom),
-            format='coo'
-        ).astype(np.float32)
-        mat.data[np.isnan(mat.data)] = 0
-        mat.eliminate_zeros()
+        with open_hdf5(co.store) as h5:
+            root = h5[co.root]
+            chrom_offset = root['indexes']['chrom_offset']
+            cid = co._chromids[chrom]
+            row_st, row_ed = chrom_offset[cid], chrom_offset[cid + 1]
+            col_st, col_ed = row_st, row_ed
+            reader = CSRReader(
+                h5=root,
+                field='count',
+                max_chunk=500000000000000000,
+            )
+            x, y, values = reader.query(row_st, row_ed, col_st, col_ed)
+            mat = sparse.coo_matrix(
+                (values, (x - row_st, y - col_st)),
+                shape=(row_ed - row_st, col_ed - col_st)
+            )
+            weights = root["bins"]["weight"][row_st: row_ed]
+            mat.data = mat.data * weights[mat.row] * weights[mat.col]
 
-        return mat
+        return mat.astype(np.float32), weights.astype(np.float32), row_st
 
     @property
     def mask(self) -> np.ndarray:
@@ -447,7 +459,7 @@ class ChromMatrix(object):
         def expected_fetcher(key, slices, expected=self.expected()):
             return expected[slices]
 
-        def observed_fetcher(key, slices, cool=self._cool):
+        def observed_fetcher(key, slices, cool=self.cool):
             row_st, row_ed = slices[0].start + self._start, slices[0].stop + self._start
             col_st, col_ed = slices[1].start + self._start, slices[1].stop + self._start
             return cool.matrix()[slice(row_st, row_ed), slice(col_st, col_ed)]
@@ -562,10 +574,10 @@ class ChromMatrix(object):
         :param method:
         :return:
         """
-        key = (str(self._cool), window_size, method)
+        key = (str(self.cool), window_size, method)
         if self.HMM_MODELS.get(key, None) is None:
             self.HMM_MODELS[key] = train_hmm(
-                self._cool,
+                self.cool,
                 num_mix,
                 partial(
                     di_score,
