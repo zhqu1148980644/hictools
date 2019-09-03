@@ -8,7 +8,7 @@ dependencies:
     - pip
     - pbgzip
     - lz4-c
-    - bwa
+    - bwa =0.7.17
     - samtools
     - sra-tools
     - aspera-cli
@@ -20,4 +20,3 @@ dependencies:
     - pip:
         - multiqc
         - decorator >= 4.1.0
-        - hictools

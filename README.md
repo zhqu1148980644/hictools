@@ -43,7 +43,7 @@ raw_reads:
             - 'lane10*'
     sample2:
         bio1:
-            - 'SRR2601843'
+            - 'SRR4272024'
             - 'x07_1.fastq'
             - 'x07_2.fastq'
 ```
