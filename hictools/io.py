@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 import h5py
 import pyBigWig
-import cooler
 
 from .utils import get_logger
 
@@ -219,10 +218,10 @@ def records2bigwigs(df: pd.DataFrame, prefix: str):
 
 
 def fetch_coolinfo(cool: h5py.File, chroms: Iterable) -> Tuple[list, dict]:
-    bin1_offset = cool['indexes/bin1_offset']
-    chrom_offset = cool['indexes/chrom_offset']
-    chrom_names = cool['chroms/name']
-    chrom_lengths = cool['chroms/length']
+    bin1_offset = cool['indexes']['bin1_offset']
+    chrom_offset = cool['indexes']['chrom_offset']
+    chrom_names = cool['chroms']['name']
+    chrom_lengths = cool['chroms']['length']
 
     sub_chroms = list(chroms)
     chrom_info = OrderedDict()
@@ -280,27 +279,39 @@ def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = 
     sub_cool.attrs['Included chroms'] = list(chrom_info.keys())
 
     # create pixels group.
-    bin1_id = cool['pixels/bin1_id']
-    bin2_id = cool['pixels/bin2_id']
-    count = cool['pixels/count']
-    old_indptr = cool['indexes/bin1_offset']
+    bin2_id = cool['pixels']['bin2_id']
+    count = cool['pixels']['count']
+    old_indptr = cool['indexes']['bin1_offset']
     new_indptr = np.zeros_like(old_indptr)
     new_bin1_id, new_bin2_id, new_count = [], [], []
     for chrom, info in chrom_info.items():
         if intra_only:
             offset = info.pixel_offset
-            for row_index, row_id in enumerate(range(info.bin_st, info.bin_ed)):
-                offset_st, offset_ed = offset[row_index: row_index + 2]
-                if offset_st == offset_ed:
-                    continue
-
-                sub_bin2 = bin2_id[offset_st: offset_ed]
-                first = offset_st + np.searchsorted(sub_bin2, info.bin_st, 'left')
-                last = offset_st + np.searchsorted(sub_bin2, info.bin_ed - 1, 'right')
-                new_bin1_id.append(bin1_id[first: last])
-                new_bin2_id.append(bin2_id[first: last])
-                new_count.append(count[first: last])
-                new_indptr[row_id + 1] = last - first
+            offset_st, offset_ed = offset[0], offset[-1]
+            all_bin2 = bin2_id[offset_st: offset_ed]
+            all_count = count[offset_st: offset_ed]
+            dtype = all_bin2.dtype
+            _st, _ed = np.int64(info.bin_st), np.int64(info.bin_ed - 1)
+            for row_id, st, ed in zip(
+                    range(info.bin_st, info.bin_ed),
+                    offset[:-1] - offset_st,
+                    offset[1:] - offset_st
+            ):
+                bin2 = all_bin2[st: ed]
+                bin2_st = np.searchsorted(bin2, _st, 'left')
+                bin2_ed = np.searchsorted(bin2, _ed, 'right')
+                sub_bin2 = bin2[bin2_st: bin2_ed]
+                new_bin2_id.append(sub_bin2)
+                new_bin1_id.append(np.full(sub_bin2.size, row_id, dtype=dtype))
+                new_count.append(all_count[st + bin2_st: st + bin2_ed])
+                new_indptr[row_id + 1] = bin2_ed - bin2_st
+                # mask = (bin2 >= info.bin_st) & (bin2 < info.bin_ed)
+                # sub_bin2 = bin2[mask]
+                # size = sub_bin2.size
+                # new_bin2_id.append(sub_bin2)
+                # new_bin1_id.append(np.full(size, row_id, dtype=dtype))
+                # new_count.append(all_count[st: ed][mask])
+                # new_indptr[row_id + 1] = size
         else:
             raise NotImplementedError('Not implemented. Only support intra-only extraction.')
 
@@ -309,6 +320,7 @@ def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = 
         np.concatenate(new_bin2_id),
         np.concatenate(new_count)
     )
+
     pixels_grp = sub_cool.create_group('pixels')
     for name, dataset in zip(('bin1_id', 'bin2_id', 'count'), new_datasets):
         pixels_grp.create_dataset(
@@ -321,11 +333,10 @@ def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = 
         )
 
     # rewrite indexes.bin1_offset dataset.
-    del sub_cool['indexes/bin1_offset']
+    del sub_cool['indexes']['bin1_offset']
     sub_cool.create_dataset(name='indexes/bin1_offset', data=np.cumsum(new_indptr))
-    sub_cool.attrs['nnz'] = sub_cool['pixels/bin1_id'].size
+    sub_cool.attrs['nnz'] = sub_cool['pixels']['bin1_id'].size
     sub_cool.file.close()
+    cool.file.close()
 
     return True
-
-

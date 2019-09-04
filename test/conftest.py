@@ -4,12 +4,11 @@ import random
 import subprocess
 import pytest
 
-import numpy as np
 import wget
 import h5py
 import cooler
 
-sys.path.append('../')
+sys.path.insert(0, '../')
 from hictools.io import extract_cool
 from hictools.api import ChromMatrix
 
