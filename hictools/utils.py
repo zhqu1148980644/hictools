@@ -299,35 +299,21 @@ class RayWrap(object):
 
     def _mimic_actor(self, cls):
         """mimic Actor's behavior"""
-        log = get_logger()
 
         class _Actor(cls):
             def __init__(obj, *args, **kwargs):
                 super().__init__(*args, **kwargs)
-
-                def make_remote(name, mthd):
-                    def remote_(*args, **kwargs):  # mimic actor.func.remote()
-                        log.debug(f"Remote method '{cls.__name__}.{name}' is called.")
-                        id_ = f"{cls.__name__}[{id(obj)}].{name}_{args}_{kwargs}"
-                        res = mthd(*args, **kwargs)
-                        self._cache[id_] = res
-                        return id_
-
-                    return remote_
-
-                for name, attr in inspect.getmembers(obj):
-                    if not inspect.ismethod(attr) or name.startswith('__'):
-                        continue
-                    mthd = attr
-                    mic_mthd = mimic_method(mthd)
-                    mic_mthd.remote = make_remote(name, mthd)
-                    setattr(obj, name, mic_mthd)
+                obj.ray = self
 
             @classmethod
             def remote(cls_, *args, **kwargs):
                 obj = cls_(*args, **kwargs)
-                obj.ray = self
                 return obj
+
+        for name, attr in inspect.getmembers(_Actor):
+            if not inspect.isfunction(attr) or name.startswith('__'):
+                continue
+            setattr(_Actor, name, MethodWithRemote(attr))
 
         return _Actor
 
@@ -356,21 +342,34 @@ class RayWrap(object):
             return self._cache[id_]
 
 
-class mimic_method(object):
-    """ Used for mimic class's method.
-    Use this substitude original bound method,
-    you can specify attributes to it, like:
-    >>> a = A()
-    >>> a.mth.b = 1  # this is not allowed!(raise AttributeError)
-    >>> a.mth = mimic_method(a.mth)
-    >>> a.mth.b = 1  # this is allowed
-    """
+class MethodWithRemote(object):
+    """For mimic ray Actor's method.remote API."""
 
     def __init__(self, mth):
         self.mth = mth
 
+    def __get__(self, instance, owner):
+        self.instance = instance
+        self.owner = owner
+        if instance is None:
+            return self.mth
+        else:
+            return self
+
+    def remote(self, *args, **kwargs):  # mimic actor.func.remote()
+        log = get_logger("Mimic remote")
+        log.debug(f"Remote method '{self.mth.__qualname__}' is called.")
+        id_ = f"{self.owner.__name__}[{id(self.instance)}]" + \
+              f".{self.mth.__name__}_{args}_{kwargs}"
+        res = self.mth(self.instance, *args, **kwargs)
+        self.instance.ray._cache[id_] = res
+        return id_
+
     def __call__(self, *args, **kwargs):
-        return self.mth(*args, **kwargs)
+        msg =  "Actor methods cannot be called directly." + \
+              f"Instead of running 'object.{self.mth.__name__}()', " + \
+              f"try 'object.{self.mth.__name__}.remote()'."
+        raise Exception(msg)
 
 
 def get_logger(name: str = None) -> logging.Logger:

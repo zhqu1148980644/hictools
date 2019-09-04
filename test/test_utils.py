@@ -64,3 +64,23 @@ def _test_multi_methods_features(self):
 class TestMultiMethods(object):
     test_multi_methods_with_dups = _test_multi_methods_with_dups
     test_multi_methods_features = _test_multi_methods_features
+
+
+class TestRayWrap(object):
+
+    def test_mimic_actor(self):
+        from hictools.utils import RayWrap, MethodWithRemote
+        from types import FunctionType
+        ray = RayWrap(enable_ray=False)
+
+        class A(object):
+            def mth1(self, x):
+                return x
+
+        A_ = ray.remote(A)
+        a = A_.remote()
+        assert type(A_.mth1) is FunctionType
+        assert type(a.mth1) is MethodWithRemote
+        with pytest.raises(Exception):
+            a.mth1(1)
+        assert ray.get(a.mth1.remote(1)) == 1
