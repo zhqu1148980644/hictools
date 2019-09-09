@@ -17,8 +17,7 @@ Boolean do_fastqc = params.fastqc
 def indexs = file(params.index + "*", checkIfExists: true)
 if (indexs.size() == 0)
     error "Index cant not be found: ${params.index}"
-def index_path = indexs[0].getParent()
-def index_prefix = params.index.replaceAll(".*/", "")
+def index_file = indexs[0].toRealPath()
 
 // map parameters
 def assembly = params.map.assembly
@@ -41,8 +40,12 @@ def resolutions = params.resolutions
 def min_res = resolutions.collect{it as int}.min()
 
 // Channels
-Channel.value([file(index_path), index_prefix]).set {index}
-Channel.value(file(params.chromsize, checkIfExists: true)).set {chromsize}
+Channel
+    .value(index_file)
+    .set {index}
+Channel
+    .value(file(params.chromsize, checkIfExists: true))
+    .set {chromsize}
 
 if (genome)
     Channel.value(file(genome, checkIfExists: true)).set {fasta}
@@ -120,7 +123,7 @@ Boolean isFastq(file) {
 
 Boolean isSra(file) {
     String name = getName(file)
-    return (name ==~ /.*\.sra/) || (name ==~ /^SRR.*/)
+    return  !isFastq(name) && ((name ==~ /.*\.sra/) || (name ==~ /^SRR.*/))
 }
 
 Boolean isUrl(url) {
@@ -179,12 +182,11 @@ local_frag
 local_fastqs = Channel.create()
 local_sras = Channel.create()
 remote_files = Channel.create()
-
 def expanded_raw_reads = params.raw_reads.collect {sample, v1 -> 
     def bios = v1.collect {bio, v2 ->
         def exps = v2.collect{path ->
             if (!isUrl(path) && !isSra(path)) {
-                files = file(path, checkIfExists: true)   
+                def files = file(path, checkIfExists: true)   
                 if (isFile(files))
                     return [files]
                 else
@@ -261,7 +263,7 @@ process download_file {
         """
 }
 downloaded_fastqs = Channel.create()
-downloaded_sras =  Channel.create()
+downloaded_sras = Channel.create()
 other_files = Channel.create()
 downloaded_files
     .view {key, file ->
@@ -280,6 +282,10 @@ downloaded_files
     }
 
 local_sras
+    .map {it ->
+        def (key, filename) = it
+        return [key, file(filename)]
+    }
     .mix(downloaded_sras)
     .set{sras}
 
@@ -413,7 +419,7 @@ process map_parse_sort {
 
     input:
     set key, i, fq1, fq2 from chunk_fastqs
-    set file(index_path), index_prefix from index
+    val index_file from index
     file(chromsize) from chromsize
 
     output:
@@ -430,7 +436,7 @@ process map_parse_sort {
     """
     touch ${bam}
     bwa mem -SP5M -t ${t} \
-        ${index_path}/${index_prefix} ${fq1} ${fq2} ${keep_bam} \
+        ${(index_file =~ /(^.*)\.(.+)/)[0][1]} ${fq1} ${fq2} ${keep_bam} \
     | pairtools parse \
         --assembly ${assembly} -c ${chromsize} ${parse_args} \
     | pairtools sort --nproc ${t} --tmpdir ${sort_tmpdir} -o ${pair}
@@ -696,6 +702,8 @@ process zoomify_cool {
     """
 }
 
+temp = Channel.empty()
+
 process mcool_to_features {
     tag {"Extract genomic features of ${tag(key)}"} 
     publishDir {"results/features/${tag(key)}"}
@@ -703,7 +711,7 @@ process mcool_to_features {
     maxForks 1
 
     input:
-    set key, file(mcool) from mcools
+    set key, file(mcool) from temp
     
     output:
     set key, file("*") into features
