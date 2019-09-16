@@ -19,7 +19,7 @@ from .peaks import (
     factors_fetcher,
     chunks_gen
 )
-from .utils import (
+from hictools.utils.utils import (
     CPU_CORE,
     RayWrap,
     get_logger
@@ -149,12 +149,13 @@ def hiccups(cool, output,
     ray = RayWrap(num_cpus=nproc)
     co, _, chrom_dict = fetch_chrom_dict(cool)
 
+    num_diags = max_dis // co.binsize
     expected_dict = OrderedDict()
     start_dict = OrderedDict()
     factor_dict = OrderedDict()
     chrom_size_dict = OrderedDict()
     for key, chrom in chrom_dict.items():
-        expected_dict[key] = chrom.expected.remote()
+        expected_dict[key] = chrom.expected.remote(ndiags=num_diags + 20)
         chrom_bin = co.bins().fetch(key)
         start_dict[key] = chrom_bin.index.min()
         factor_dict[key] = np.array(chrom_bin['weight'])
@@ -165,7 +166,7 @@ def hiccups(cool, output,
     factors = partial(factors_fetcher, factor_dict=factor_dict)
     chunks = chunks_gen(
         chromsizes=chrom_size_dict,
-        band_width=max_dis // co.binsize,
+        band_width=num_diags,
         height=chunk_size,
         ov_length=2 * outer_radius)
     kernels = fetch_kernels(inner_radius, outer_radius)

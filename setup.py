@@ -9,7 +9,8 @@ import os
 import sys
 from shutil import rmtree
 
-from setuptools import find_packages, setup, Command
+from setuptools import find_packages, setup, Command, Extension
+from Cython.Build import cythonize
 
 # Package meta-data.
 NAME = 'hictools'
@@ -91,6 +92,12 @@ def get_install_requires():
     return requirements
 
 
+# from https://stackoverflow.com/questions/31043774/customize-location-of-so-file-generated-by-cython
+ext_modules = [
+    Extension("hictools.utils._numtools",
+              ['hictools/utils/_numtools.pyx'], )
+]
+
 # Where the magic happens:
 setup(
     name=NAME,
@@ -103,6 +110,7 @@ setup(
     python_requires=REQUIRES_PYTHON,
     url=URL,
     packages=find_packages(exclude=["tests", "*.tests", "*.tests.*", "tests.*"]),
+    ext_modules=cythonize(ext_modules),
     # If your package is a single module, use this instead of 'packages':
     # py_modules=['mypackage'],
     install_requires=get_install_requires(),

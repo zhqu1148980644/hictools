@@ -14,7 +14,7 @@ from contextlib import redirect_stderr
 import numpy as np
 from scipy import sparse
 
-from . import config
+from ..config import *
 
 CPU_CORE = multiprocessing.cpu_count()
 
@@ -317,7 +317,7 @@ class RayWrap(object):
 
         return _Actor
 
-    def _mimic_func(self, obj:Callable):
+    def _mimic_func(self, obj: Callable):
         """ mimic remote function """
         log = get_logger()
 
@@ -366,7 +366,7 @@ class MethodWithRemote(object):
         return id_
 
     def __call__(self, *args, **kwargs):
-        msg =  "Actor methods cannot be called directly." + \
+        msg = "Actor methods cannot be called directly." + \
               f"Instead of running 'object.{self.mth.__name__}()', " + \
               f"try 'object.{self.mth.__name__}.remote()'."
         raise Exception(msg)

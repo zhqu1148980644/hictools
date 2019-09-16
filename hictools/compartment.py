@@ -1,13 +1,13 @@
 """Tools for compartment analysis."""
 # TODO(zhongquan789@126.com): handling intra and inter interaction
 
-from typing import Callable
+from typing import Callable, Union
 
 import numpy as np
 import scipy.linalg as nl
 from scipy import sparse
 
-from .utils import is_symmetric
+from hictools.utils.utils import is_symmetric
 
 
 def linear_bins(lo, hi):
@@ -19,25 +19,26 @@ def get_decay(mat: np.ndarray,
               ndiags: int = None,
               ignore_nan: bool = True,
               ignore_zero: bool = True,
-              record: bool = False) -> np.ndarray:
+              record_fn: Callable = None) -> Union[np.ndarray, tuple]:
     """Calculate mean contact across each diagonal.
 
     :param mat: np.ndarray. The matrix to compute.
-    :param span_fn: callable. The callable object to seapate the linear space in to larger part.
+    :param span_fn: callable. The callable object to separate the linear space into multiple continuous region.
     :param ndiags: int.
     :param ignore_nan: bool. If ignore counts of nan values in each diagonal.
     :param ignore_zero: bool. If ignore counts of zero values in each diagonal.
-    :param record: bool. if record the number of valid caontacts in the result.
-    :return: np.ndarray.
+    :param record_fn: Callable. Callable object for handling values in each diagonal.
+    :return: np.ndarray. If record_fn is specified. The results of applying each diagonal to this function
+    will be returned together with decay as a tuple.
     """
     length = mat.shape[0]
     ndiags = ndiags if (ndiags is not None) else length
     bins_span = span_fn(0, length)
+    records = []
     decay = np.zeros(length, dtype=mat.dtype)
 
-    if record:
-        nums_array = np.zeros(length, dtype=np.int)
-
+    record = record_fn is not None
+    sum_fn = np.nansum if (ignore_zero and not ignore_nan) else np.sum
     for start, end in zip(bins_span[:-1], bins_span[1:]):
         if start >= ndiags:
             continue
@@ -47,32 +48,22 @@ def get_decay(mat: np.ndarray,
             diag = mat.diagonal(offset)
             if ignore_nan and ignore_zero:
                 sub_data = diag[(diag != 0) & (~np.isnan(diag))]
-                sum_counts += np.sum(sub_data)
             elif ignore_nan:
                 sub_data = diag[~np.isnan(diag)]
-                sum_counts += np.sum(sub_data)
             elif ignore_zero:
                 sub_data = diag[diag != 0]
-                sum_counts += np.nansum(sub_data)
             else:
                 sub_data = diag
-                sum_counts += np.sum(sub_data)
+            sum_counts += sum_fn(sub_data)
             num_pixels += sub_data.size
+            if record:
+                records.append(record_fn(sub_data))
 
         average = (sum_counts / num_pixels) if num_pixels else 0
         decay[start: end] = average
-        if record:
-            nums_array[start: end] = num_pixels
 
     if record:
-        results = np.zeros(
-            shape=length,
-            dtype=[('average', mat.dtype), ('number', np.int)]
-        )
-        results['average'] = decay
-        results['number'] = nums_array
-        return results
-
+        return decay, np.vstack(records)
     else:
         return decay
 

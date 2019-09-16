@@ -1,11 +1,13 @@
 import sys
 import pytest
 
+backup = sys.path
+print(backup)
 sys.path.insert(0, '../')
 
 
 def _test_multi_methods_with_dups(self):
-    from hictools.utils import multi_methods
+    from hictools.utils.utils import multi_methods
     with pytest.raises(RuntimeError):
         class Test(object):
             @multi_methods()
@@ -22,7 +24,7 @@ def _test_multi_methods_with_dups(self):
 
 
 def _test_multi_methods_features(self):
-    from hictools.utils import multi_methods
+    from hictools.utils.utils import multi_methods
     class Test(object):
         def __init__(self, name, msg):
             self.name = name
@@ -69,7 +71,7 @@ class TestMultiMethods(object):
 class TestRayWrap(object):
 
     def test_mimic_actor(self):
-        from hictools.utils import RayWrap, MethodWithRemote
+        from hictools.utils.utils import RayWrap, MethodWithRemote
         from types import FunctionType
         ray = RayWrap(enable_ray=False)
 

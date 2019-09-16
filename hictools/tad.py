@@ -9,7 +9,7 @@ import numpy as np
 from pomegranate import NormalDistribution, HiddenMarkovModel, GeneralMixtureModel, State
 from scipy import sparse
 
-from .utils import mask_array, remove_small_gap, suppress_warning, CPU_CORE
+from hictools.utils.utils import mask_array, remove_small_gap, suppress_warning, CPU_CORE
 
 # background state
 STATES = ('start', 'downstream', 'upstream', 'end')
@@ -372,6 +372,10 @@ def train_hmm(clr: cooler.Cooler, mix_num: int = 3, discore_fn=di_score):
     )
 
     return model
+
+
+def dedoc(chrom: sparse.spmatrix):
+    pass
 
 
 if __name__ == "__main__":
