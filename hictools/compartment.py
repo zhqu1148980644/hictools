@@ -7,7 +7,7 @@ import numpy as np
 import scipy.linalg as nl
 from scipy import sparse
 
-from hictools.utils.utils import is_symmetric
+from .utils.utils import is_symmetric
 
 
 def linear_bins(lo, hi):

@@ -31,7 +31,7 @@ from .tad import (
     call_domain,
     hidden_path
 )
-from hictools.utils.utils import (
+from .utils.utils import (
     remove_small_gap,
     is_symmetric,
     suppress_warning,

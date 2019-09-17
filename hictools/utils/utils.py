@@ -216,9 +216,6 @@ class multi_methods(object):
                     )
             return sub_method
 
-        if '__doc__' not in self.__dict__:
-            self.__dict__['__doc__'] = self._doc
-
         fn_names = self._methods.keys()
         bound_method = type(self.register)
         for name in fn_names:
@@ -228,7 +225,8 @@ class multi_methods(object):
             else:
                 sub_method.__dict__[name] = method
 
-        sub_method.__dict__['__doc__'] = self._doc
+        self.__doc__ = self._doc
+        sub_method.__doc__ = self._doc
         if instance is not None:
             return bound_method(sub_method, instance)
         else:

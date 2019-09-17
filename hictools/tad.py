@@ -9,7 +9,7 @@ import numpy as np
 from pomegranate import NormalDistribution, HiddenMarkovModel, GeneralMixtureModel, State
 from scipy import sparse
 
-from hictools.utils.utils import mask_array, remove_small_gap, suppress_warning, CPU_CORE
+from .utils.utils import mask_array, remove_small_gap, suppress_warning, CPU_CORE
 
 # background state
 STATES = ('start', 'downstream', 'upstream', 'end')

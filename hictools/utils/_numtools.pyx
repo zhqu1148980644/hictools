@@ -16,7 +16,7 @@ from libc.stdlib cimport malloc, free
 np.import_array()
 
 
-cdef extern from "./_tools.cpp" nogil:
+cdef extern from "./_tools.c" nogil:
     cdef struct LineIterator:
         int max_dim
         int max_coor[20]
@@ -169,21 +169,21 @@ def convolve1d(array,
     dtype = weights.dtype
     shape_info = np.array([np.array(array.shape),
                            np.array(array.strides) / array.itemsize]).astype(np.int32)
-    if points is not None:
-        if points.shape != array.ndim:
+    if points is None:
+        indexes = None
+        output_array = np.zeros(array.shape, dtype=dtype)
+    else:
+        if points.shape[0] != array.ndim:
             raise ValueError('Number of row must equal to number of dimension of the input array.')
         indexes = (points * shape_info[1][:, None]).sum(axis=0).astype(np.int32)
         output_array = np.zeros(indexes.size, dtype=dtype)
-    else:
-        indexes = None
-        output_array = np.zeros(array.shape, dtype=dtype)
 
-        correlate1d[DTYPE_t](<DTYPE_t *>np.PyArray_DATA(array),
-                             <DTYPE_t *>np.PyArray_DATA(output_array),
-                             weights, range(array.ndim)[axis], indexes,
-                             np.array(cval, dtype=dtype),
-                             np.array(mode, dtype=np.int32),
-                             nonzero, array.size, shape_info)
+    correlate1d[DTYPE_t](<DTYPE_t *>np.PyArray_DATA(array),
+                         <DTYPE_t *>np.PyArray_DATA(output_array),
+                         weights, range(array.ndim)[axis], indexes,
+                         np.array(cval, dtype=dtype),
+                         np.array(mode, dtype=np.int32),
+                         nonzero, array.size, shape_info)
 
     return output_array
 

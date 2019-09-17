@@ -90,3 +90,13 @@ def get_chrom(get_cool):
     }
 
     return resolution
+
+
+@pytest.fixture(scope='module')
+def load_pyx():
+    import os
+    import subprocess
+    back_up = os.getcwd()
+    os.chdir('../')
+    subprocess.check_call("cythonize -q -f -b -i **/*.pyx", shell=True)
+    os.chdir(back_up)

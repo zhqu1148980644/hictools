@@ -15,7 +15,7 @@ from scipy import ndimage, stats
 from sklearn.cluster import DBSCAN
 from statsmodels.stats import multitest
 
-from hictools.utils.utils import remove_small_gap, suppress_warning, mask_array, index_array
+from .utils.utils import remove_small_gap, suppress_warning, mask_array, index_array
 
 
 def extend_gap(gap_mask: np.ndarray, extend_width: int, remove_single=True) -> np.ndarray:

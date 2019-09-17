@@ -11,7 +11,7 @@ import pandas as pd
 import h5py
 import pyBigWig
 
-from hictools.utils.utils import get_logger
+from .utils.utils import get_logger
 
 
 class auto_open(object):

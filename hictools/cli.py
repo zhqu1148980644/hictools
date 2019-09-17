@@ -19,7 +19,7 @@ from .peaks import (
     factors_fetcher,
     chunks_gen
 )
-from hictools.utils.utils import (
+from .utils.utils import (
     CPU_CORE,
     RayWrap,
     get_logger
