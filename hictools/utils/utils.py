@@ -1,20 +1,17 @@
 """Utils for other modules."""
+import functools
 import inspect
 import logging
-import functools
-import itertools
 import multiprocessing
 import warnings
-import numbers
 from collections import UserDict
-from functools import partial, wraps
-from typing import Union, Iterable, Callable
 from contextlib import redirect_stderr
+from functools import partial, wraps
+from typing import Callable
 
 import numpy as np
-from scipy import sparse
 
-from ..config import *
+from .. import config
 
 CPU_CORE = multiprocessing.cpu_count()
 
@@ -87,68 +84,6 @@ def remove_small_gap(gap_mask: np.ndarray, gap_size: int = 1) -> np.ndarray:
     gap_mask[list(set(gap_indexs) - set(single_gap))] = True
 
     return gap_mask
-
-
-@suppress_warning
-def is_symmetric(mat: Union[np.ndarray, sparse.spmatrix],
-                 rtol: float = 1e-05,
-                 atol: float = 1e-08) -> bool:
-    """Check if the input matrix is symmetric.
-
-    :param mat: np.ndarray/scipy.sparse.spmatrix.
-    :param rtol: float. The relative tolerance parameter. see np.allclose.
-    :param atol: float. The absolute tolerance parameter. see np.allclose
-    :return: bool. True if the input matrix is symmetric.
-    """
-    if isinstance(mat, np.ndarray):
-        data, data_t = mat, mat.T
-        return np.allclose(data, data_t, rtol=rtol, atol=atol, equal_nan=True)
-    elif sparse.isspmatrix(mat):
-        mat = mat.copy()
-        mat.data[np.isnan(mat.data)] = 0
-        return (np.abs(mat - mat.T) > rtol).nnz == 0
-    else:
-        raise ValueError('Only support for np.ndarray and scipy.sparse_matrix')
-
-
-def fill_diag(mat: np.ndarray,
-              offset: int = 0,
-              fill_value: float = 1.0,
-              copy: bool = False) -> np.ndarray:
-    """Fill specified value in a given diagonal of a 2d ndarray.\n
-    Reference: https://stackoverflow.com/questions/9958577/changing-the-values-of-the-diagonal-of-a-matrix-in-numpy
-    :param mat: np.ndarray.
-    :param offset: int. The diagonal's index. 0 means the main diagonal.
-    :param fill_value: float. Value to fill the diagonal.
-    :param copy: bool. Set True to fill value in the copy of input matrix.
-    :return: np.ndarray. Matrix with the 'offset' diagonal filled with 'fill_value'.
-    """
-
-    if copy:
-        mat = mat.copy()
-    length = mat.shape[1]
-    st = max(offset, -length * offset)
-    ed = max(0, length - offset) * length
-    mat.ravel()[st: ed: length + 1] = fill_value
-
-    return mat
-
-
-def fill_diags(mat: np.ndarray,
-               ignore_diags: Union[int, Iterable] = 1,
-               fill_values: Union[float, Iterable] = 1.,
-               copy: bool = False) -> np.ndarray:
-    if isinstance(ignore_diags, int):
-        ignore_diags = range(-ignore_diags + 1, ignore_diags)
-    if isinstance(fill_values, numbers.Number):
-        fill_values = itertools.repeat(fill_values)
-    if copy:
-        mat = mat.copy()
-
-    for diag_index, fill_value in zip(ignore_diags, fill_values):
-        fill_diag(mat, diag_index, fill_value)
-
-    return mat
 
 
 class LazyProperty(object):
@@ -375,7 +310,7 @@ def get_logger(name: str = None) -> logging.Logger:
     :param name: the name of the Logger object, if not set will
     set a default name according to it's caller.
     """
-    from inspect import currentframe, getframeinfo, ismethod
+    from inspect import currentframe, getframeinfo
 
     def get_caller():
         """
@@ -388,20 +323,24 @@ def get_logger(name: str = None) -> logging.Logger:
         func = outer_f.f_locals.get(
             func_name,
             outer_f.f_globals.get(func_name))
-        if func is None:  # call from click command
+        # call from click command
+        if func is None:
             func = cal_f.f_globals.get(func_name)
-        if (func is None) and ('self' in outer_f.f_locals):  # call from method
+        # call from method
+        if (func is None) and ('self' in outer_f.f_locals):
             try:
                 func = getattr(outer_f.f_locals.get('self'), func_name)
             except AttributeError:
                 pass
         return func
 
-    if name is None:  # set a default name to logger
+    # set a default name to logger
+    if name is None:
         caller = get_caller()
         assert caller is not None, "Caller not Found."
         import click
-        if isinstance(caller, click.core.Command):  # click command
+        # click command
+        if isinstance(caller, click.core.Command):
             name = 'CLI.' + caller.name
         else:  # function & method
             name = caller.__module__ + '.'

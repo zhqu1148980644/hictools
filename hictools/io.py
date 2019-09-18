@@ -6,9 +6,9 @@ import subprocess
 from collections import OrderedDict, namedtuple
 from typing import Iterable, Tuple
 
+import h5py
 import numpy as np
 import pandas as pd
-import h5py
 import pyBigWig
 
 from .utils.utils import get_logger

@@ -192,3 +192,39 @@ def convolve1d(array,
 
 def convolve():
     pass
+
+
+def _apply_along_diags(func,
+                       np.ndarray mat,
+                       tuple offsets,
+                       filter_fn):
+
+    cdef int offset, max_len = mat.shape[0]
+    cdef np.ndarray zeros, mask, diag
+
+    if filter_fn is None:
+        for offset in offsets:
+            if offset >= max_len:
+                break
+            diag = mat.diagonal(offset)
+            yield func(diag)
+    else:
+
+        diag = mat.diagonal(offsets[len(offsets) - 1])
+        res = func(diag)
+        if isinstance(res, np.ndarray):
+            for offset in offsets:
+                if offset >= max_len:
+                    break
+                diag = mat.diagonal(offset)
+                mask = filter_fn(diag)
+                zeros = np.zeros_like(diag)
+                zeros[mask] = func(diag[mask])
+                yield zeros, mask
+        else:
+            for offset in offsets:
+                if offset >= max_len:
+                    break
+                diag = mat.diagonal(offset)
+                yield func(diag[filter_fn(diag)])
+

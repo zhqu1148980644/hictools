@@ -1,16 +1,14 @@
 import os
-import sys
 import random
 import subprocess
-import pytest
+import sys
 
-import wget
-import h5py
 import cooler
+import h5py
+import pytest
+import wget
 
 sys.path.insert(0, '../')
-from hictools.io import extract_cool
-from hictools.api import ChromMatrix
 
 COOL_URL = "ftp://cooler.csail.mit.edu/coolers/hg19/Rao2014-K562-MboI-allreps-filtered.10kb.cool"
 COOL = 'data/' + COOL_URL[COOL_URL.rfind('/') + 1:]
@@ -23,7 +21,25 @@ def reso_uri(reso=10000):
 
 
 @pytest.fixture(scope='module')
+def load_pyx():
+    import os
+    import sys
+    import subprocess
+    _stderr = sys.stderr
+    _stdout = sys.stdout
+    sys.stderr = open(os.devnull, 'w')
+    sys.stdout = open(os.devnull, 'w')
+    back_up = os.getcwd()
+    os.chdir('../')
+    subprocess.check_call("cythonize -q -f -b -i **/*.pyx", shell=True)
+    os.chdir(back_up)
+    sys.stderr = _stderr
+    sys.stdout = _stdout
+
+
+@pytest.fixture(scope='module')
 def get_cool():
+    from hictools.io import extract_cool
     def resolution(reso):
         return f'{os.path.abspath(SUB_MCOOL)}{reso_uri(reso)}'
 
@@ -70,7 +86,9 @@ def get_cool():
 
 
 @pytest.fixture(scope='module')
-def get_chrom(get_cool):
+def get_chrom(get_cool, load_pyx):
+    from hictools.api import ChromMatrix
+
     def resolution(reso):
         return ChromMatrix(cool_dict[reso], random.choice(chroms))
 
@@ -90,13 +108,3 @@ def get_chrom(get_cool):
     }
 
     return resolution
-
-
-@pytest.fixture(scope='module')
-def load_pyx():
-    import os
-    import subprocess
-    back_up = os.getcwd()
-    os.chdir('../')
-    subprocess.check_call("cythonize -q -f -b -i **/*.pyx", shell=True)
-    os.chdir(back_up)

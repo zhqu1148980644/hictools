@@ -1,71 +1,51 @@
 """Tools for compartment analysis."""
-# TODO(zhongquan789@126.com): handling intra and inter interaction
 
-from typing import Callable, Union
+from functools import partial
+from typing import Callable, Union, Sequence, Generator
 
 import numpy as np
 import scipy.linalg as nl
 from scipy import sparse
 
-from .utils.utils import is_symmetric
+from .utils.numtools import is_symmetric, apply_along_diags
 
 
-def linear_bins(lo, hi):
-    return np.r_[0, np.arange(lo, hi)]
-
-
-def get_decay(mat: np.ndarray,
-              span_fn: Callable[[int, int], np.ndarray] = linear_bins,
-              ndiags: int = None,
-              ignore_nan: bool = True,
-              ignore_zero: bool = True,
-              record_fn: Callable = None) -> Union[np.ndarray, tuple]:
+def get_decay(mat: Union[np.ndarray, sparse.coo_matrix],
+              bin_span: Sequence = None,
+              max_diag: int = None,
+              func: Callable = np.mean,
+              filter_fn: Callable = partial(np.not_equal, 0.),
+              agg_fn: Callable = np.mean) -> Generator:
     """Calculate mean contact across each diagonal.
 
-    :param mat: np.ndarray. The matrix to compute.
-    :param span_fn: callable. The callable object to separate the linear space into multiple continuous region.
-    :param ndiags: int.
-    :param ignore_nan: bool. If ignore counts of nan values in each diagonal.
-    :param ignore_zero: bool. If ignore counts of zero values in each diagonal.
-    :param record_fn: Callable. Callable object for handling values in each diagonal.
-    :return: np.ndarray. If record_fn is specified. The results of applying each diagonal to this function
-    will be returned together with decay as a tuple.
+    :param mat:
+    :param bin_span:
+    :param max_diag:
+    :param func:
+    :param filter_fn:
+    :param agg_fn:
+    :return:
     """
+    if sparse.isspmatrix(mat):
+        raise NotImplementedError('Not implemented')
     length = mat.shape[0]
-    ndiags = ndiags if (ndiags is not None) else length
-    bins_span = span_fn(0, length)
-    records = []
-    decay = np.zeros(length, dtype=mat.dtype)
+    if bin_span is None:
+        bin_span = list(range(length + 1))
+    if max_diag is None:
+        max_diag = length
+    offsets = range(bin_span[0], bin_span[-1])
+    mean_gen = apply_along_diags(func=func, mat=mat,
+                                 offsets=offsets,
+                                 filter_fn=filter_fn)
 
-    record = record_fn is not None
-    sum_fn = np.nansum if (ignore_zero and not ignore_nan) else np.sum
-    for start, end in zip(bins_span[:-1], bins_span[1:]):
-        if start >= ndiags:
-            continue
-        sum_counts = 0
-        num_pixels = 0
-        for offset in range(start, end):
-            diag = mat.diagonal(offset)
-            if ignore_nan and ignore_zero:
-                sub_data = diag[(diag != 0) & (~np.isnan(diag))]
-            elif ignore_nan:
-                sub_data = diag[~np.isnan(diag)]
-            elif ignore_zero:
-                sub_data = diag[diag != 0]
-            else:
-                sub_data = diag
-            sum_counts += sum_fn(sub_data)
-            num_pixels += sub_data.size
-            if record:
-                records.append(record_fn(sub_data))
-
-        average = (sum_counts / num_pixels) if num_pixels else 0
-        decay[start: end] = average
-
-    if record:
-        return decay, np.vstack(records)
-    else:
-        return decay
+    for st, ed in zip(bin_span[:-1], bin_span[1:]):
+        if st >= max_diag:
+            break
+        res_li = [next(mean_gen) for offset in range(st, ed)]
+        res = agg_fn(res_li)
+        res = 0 if np.isnan(res) else res
+        for i in range(st, ed):
+            yield res
 
 
 def eig(mat, vecnum=3):
@@ -189,10 +169,6 @@ def corr_sorter(chrom_matrix, eigvecs: np.ndarray, corr=None, **kwargs):
     sorted_coms = sorted(coms, key=lambda x: (x[2], x[1]), reverse=True)
 
     return np.array([com[0] for com in sorted_coms])
-
-
-def plain_sorter(chrom_matrix, eigvecs: list, *kwargs):
-    return np.array(eigvecs)
 
 
 class Pca(object):

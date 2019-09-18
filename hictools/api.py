@@ -1,18 +1,18 @@
 """Interface."""
+import numbers
 from functools import lru_cache
 from functools import partial
-from typing import Union, Callable, Tuple
+from typing import Union, Tuple, Sequence
 
 import cooler
-from cooler.core import CSRReader
-from cooler.util import open_hdf5
 import numpy as np
 import pandas as pd
+from cooler.core import CSRReader
+from cooler.util import open_hdf5
 from scipy import sparse
 
 from .compartment import (
     corr_sorter,
-    linear_bins,
     get_decay,
     get_pca_compartment,
     get_eigen_compartment,
@@ -31,12 +31,14 @@ from .tad import (
     call_domain,
     hidden_path
 )
+from .utils.numtools import (
+    is_symmetric,
+    fill_diags
+)
 from .utils.utils import (
     remove_small_gap,
-    is_symmetric,
     suppress_warning,
     LazyProperty,
-    fill_diags,
     multi_methods
 )
 
@@ -44,7 +46,6 @@ from .utils.utils import (
 def infer_mat(mat,
               mask: np.ndarray = None,
               mask_ratio: float = 0.2,
-              span_fn: callable = linear_bins,
               check_symmetric: bool = False,
               copy: bool = False) -> tuple:
     """Maintain non-zero contacts outside bad regions in a triangular sparse matrix.\n
@@ -105,7 +106,7 @@ def infer_mat(mat,
         if contain_nan and nan_mat[~nan_mask].any():
             mat[nan_mat] = 0
         mat[nan_mask] = np.nan
-        decay = get_decay(mat, span_fn)
+        decay = np.array(tuple(get_decay(mat)))
 
         if not isinstance(mat, np.ndarray):
             mat = sparse.triu(mat_cache)
@@ -124,7 +125,7 @@ def infer_mat(mat,
 
             dense_mat = mat.toarray()
             dense_mat[nan_mask] = np.nan
-            decay = get_decay(dense_mat, span_fn)
+            decay = np.array(tuple(get_decay(dense_mat)))
 
             mat = sparse.triu(mat)
             mat.eliminate_zeros()
@@ -137,7 +138,7 @@ def infer_mat(mat,
             if contain_nan & nan_mat[~nan_mask].any():
                 mat[nan_mat] = 0
             mat[nan_mask] = np.nan
-            decay = get_decay(mat, span_fn)
+            decay = np.array(tuple(get_decay(mat)))
             mat[nan_mask] = 0
             mat = sparse.triu(mat, format='coo')
 
@@ -149,7 +150,7 @@ class ChromMatrix(object):
 
     def __init__(self, co: Union[cooler.Cooler, str],
                  chrom: str,
-                 span_fn: Callable[[int, int], np.ndarray] = linear_bins):
+                 bin_span: Sequence = None):
         """
 
         :param co: Union[cooler.Cooler, str]. Path of .cool file or cooler.Cooler object.
@@ -161,7 +162,7 @@ class ChromMatrix(object):
         self._observed, self._weights, self._start = self._get_info(co, chrom)
         self._mask = ~np.isnan(self._weights)
         self._binsize = co.binsize
-        self._span_fn = span_fn
+        self._bin_span = bin_span
         self.cool = co
         self.chrom = chrom
         self.shape = self._observed.shape
@@ -192,8 +193,11 @@ class ChromMatrix(object):
                 shape=(row_ed - row_st, col_ed - col_st)
             )
             weights = root["bins"]["weight"][row_st: row_ed]
+            is_nan = np.isnan(weights)
+            weights[is_nan] = 0
             mat.data = mat.data * weights[mat.row] * weights[mat.col]
-
+            mat.eliminate_zeros()
+            weights[is_nan] = np.nan
         return mat.astype(np.float32), weights.astype(np.float32), row_st
 
     @property
@@ -285,22 +289,29 @@ class ChromMatrix(object):
         return observed
 
     @lru_cache(maxsize=3)
-    def decay(self, balance: bool = True, ndiags: int = None) -> np.ndarray:
+    @suppress_warning
+    def decay(self, balance: bool = True,
+              ndiags: int = None,
+              **kwargs) -> Union[np.ndarray, tuple]:
         """Calculate expected count of each interaction across a certain distance.
 
         :param balance: bool. If use factors to normalize the observed contacts matrix before calculation.
         :param ndiags: int. Number of diagonals to compute.
         :return: np.ndarray. 1-d array representing expected values in each distance.
         """
-        return get_decay(
-            self.observed(
-                balance=balance,
-                sparse=True,
-                copy=False
-            ).toarray(),
-            span_fn=self._span_fn,
-            ndiags=ndiags
-        )
+        decay_res = tuple(get_decay(self.observed(balance=balance,
+                                                  sparse=True,
+                                                  copy=False).toarray(),
+                                    bin_span=self._bin_span,
+                                    max_diag=ndiags,
+                                    **kwargs))
+
+        if isinstance(decay_res[0], numbers.Number):
+            decay_array = np.zeros(self.shape[0], dtype=np.float32)
+            decay_array[:len(decay_res)] = decay_res
+            return decay_array
+        else:
+            return decay_res
 
     def expected(self, balance: bool = True, ndiags: int = None) -> Expected:
         """Calculate expected matrix that pixles in a certain diagonal have the same value.
@@ -355,7 +366,7 @@ class ChromMatrix(object):
         _oe[np.isnan(_oe)] = 0
         _oe = fill_diags(
             mat=_oe,
-            ignore_diags=ignore_diags,
+            diags=ignore_diags,
             fill_values=fill_value
         )
         corr = np.corrcoef(_oe).astype(_oe.dtype)
@@ -550,7 +561,7 @@ class ChromMatrix(object):
 
         else:
             _oe = self.oe(balance=balance, full=False) - 1
-            _oe = fill_diags(_oe, ignore_diags=ignore_diags, fill_values=fill_value)
+            _oe = fill_diags(_oe, diags=ignore_diags, fill_values=fill_value)
             vecs = get_eigen_compartment(mat=_oe - 1, vecnum=numvecs)
 
         vecs = np.array(vecs)

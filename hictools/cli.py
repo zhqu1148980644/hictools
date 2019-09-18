@@ -1,16 +1,18 @@
 """Command line tools."""
 
+import logging
 import sys
 from collections import OrderedDict
 from functools import partial
-import logging
 
 import click
 import cooler
 import numpy as np
 
+from . import config
 from .api import ChromMatrix as _ChromMatrix
 from .compartment import corr_sorter, plain_sorter
+from .io import records2bigwigs
 from .peaks import (
     hiccups,
     fetch_kernels,
@@ -24,8 +26,6 @@ from .utils.utils import (
     RayWrap,
     get_logger
 )
-from .io import records2bigwigs
-from . import config
 
 click.option = partial(click.option, show_default=True)
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])

@@ -211,7 +211,7 @@ def insulation_score(matrix: Union[np.ndarray, sparse.csr_matrix],
 
 
 def boundary_strength(insu_score: np.ndarray) -> np.ndarray:
-    # TODO(zhongquan789@gmail.com) Call doundary from insulation score.
+    # TODO(zhongquan789@gmail.com) Call boundary from insulation score.
     pass
 
 

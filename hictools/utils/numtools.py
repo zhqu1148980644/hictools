@@ -1,11 +1,15 @@
+import itertools
 import numbers
+from typing import Union, Iterable, Callable, Generator
 
 import numpy as np
-
-from scipy.ndimage.filters import _gaussian_kernel1d
-from scipy.ndimage import _ni_support
+from hictools.utils._numtools import _apply_along_diags
 from hictools.utils._numtools import convolve1d as correlate1d
-from hictools.utils._numtools import convolve as correlate
+from scipy import sparse
+from scipy.ndimage import _ni_support
+from scipy.ndimage.filters import _gaussian_kernel1d
+
+from hictools.utils.utils import suppress_warning
 
 MODE_MAP = {
     'nearest': 0,
@@ -85,3 +89,70 @@ def gaussian_filter(array: np.ndarray,
 
 def convolve():
     raise NotImplementedError
+
+
+def get_diag(mat: np.ndarray, offset: int = 0) -> np.ndarray:
+    """Get view of a given diagonal of the 2d ndarray.\n
+    Reference: https://stackoverflow.com/questions/9958577/changing-the-values-of-the-diagonal-of-a-matrix-in-numpy
+    """
+    length = mat.shape[1]
+    st = max(offset, -length * offset)
+    ed = max(0, length - offset) * length
+    return mat.ravel()[st: ed: length + 1]
+
+
+def apply_along_diags(func: Callable,
+                      mat: np.ndarray,
+                      offsets: Iterable,
+                      filter_fn: Callable) -> Generator:
+    """Apply a fucntion to a cetain set of diagonals.
+    :param func: Callable. Function applied to each diagonal.
+    :param mat: np.ndarray. 2d ndarray.
+    :param offsets: list. List of diagonal offsets.
+    :param filter_fn: Callable. Function applied to each daigonal, should return a mask.
+    :return: Generator. Yielding the result of applying func to each diagonal.
+    """
+
+    return _apply_along_diags(func, mat, tuple(offsets), filter_fn)
+
+
+def fill_diags(mat: np.ndarray,
+               diags: Union[int, Iterable] = 1,
+               fill_values: Union[float, Iterable] = 1.,
+               copy: bool = False) -> np.ndarray:
+    if isinstance(diags, int):
+        diags = range(-diags + 1, diags)
+
+    if isinstance(fill_values, numbers.Number):
+        fill_values = itertools.repeat(fill_values)
+
+    if copy:
+        mat = mat.copy()
+
+    for diag_index, fill_value in zip(diags, fill_values):
+        diag = get_diag(mat, diag_index)
+        diag = fill_value
+
+    return mat
+
+
+@suppress_warning
+def is_symmetric(mat: Union[np.ndarray, sparse.spmatrix],
+                 rtol: float = 1e-05,
+                 atol: float = 1e-08) -> bool:
+    """Check if the input matrix is symmetric.
+
+    :param mat: np.ndarray/scipy.sparse.spmatrix.
+    :param rtol: float. The relative tolerance parameter. see np.allclose.
+    :param atol: float. The absolute tolerance parameter. see np.allclose
+    :return: bool. True if the input matrix is symmetric.
+    """
+    if isinstance(mat, np.ndarray):
+        data, data_t = mat, mat.T
+        return np.allclose(data, data_t, rtol=rtol, atol=atol, equal_nan=True)
+    elif sparse.isspmatrix(mat):
+        mat = mat.copy()
+        mat.data[np.isnan(mat.data)] = 0
+        return (np.abs(mat - mat.T) > rtol).nnz == 0
+    else:
+        raise ValueError('Only support for np.ndarray and scipy.sparse_matrix')

@@ -1,7 +1,8 @@
-import sys
 import logging
+import sys
 from os.path import join
 from subprocess import check_call
+
 import fire
 
 DOWNLOAD_DIR = "./download"
@@ -12,7 +13,6 @@ RESULT_DIR = "./results"
 LOG_FILE = "./benchmark.log"
 TEST_RESOLUTIONS = [40000, 10000, 5000]
 assert set(TEST_RESOLUTIONS) in set(RESOLUTIONS)
-
 
 log = logging.getLogger("benchmark")
 LOGGING_FMT = "%(asctime)s: %(message)s"

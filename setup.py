@@ -9,8 +9,8 @@ import os
 import sys
 from shutil import rmtree
 
-from setuptools import find_packages, setup, Command, Extension
 from Cython.Build import cythonize
+from setuptools import find_packages, setup, Command, Extension
 
 # Package meta-data.
 NAME = 'hictools'
