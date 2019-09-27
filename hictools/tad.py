@@ -1,15 +1,18 @@
 """Tools for topological associated domain analysis."""
 
+import numbers
 from collections import namedtuple
-from typing import Union
+from typing import Callable, Union
 
 import cooler
 import matplotlib.pyplot as plt
 import numpy as np
-from pomegranate import NormalDistribution, HiddenMarkovModel, GeneralMixtureModel, State
+from pomegranate import (GeneralMixtureModel, HiddenMarkovModel,
+                         NormalDistribution, State)
 from scipy import sparse
 
-from .utils.utils import mask_array, remove_small_gap, suppress_warning, CPU_CORE
+from .utils.utils import (CPU_CORE, mask_array, remove_small_gap,
+                          suppress_warning)
 
 # background state
 STATES = ('start', 'downstream', 'upstream', 'end')
@@ -125,7 +128,8 @@ def di_score(matrix: Union[np.ndarray, sparse.csr_matrix],
         contacts_down = None
 
     else:
-        raise ValueError('window_size should either be an integer or a np.ndarray.')
+        raise ValueError(
+            'window_size should either be an integer or a np.ndarray.')
 
     if not fetch_window:
         return DI_METHOD_MAP[method](contacts_up, contacts_down)
@@ -187,13 +191,15 @@ def insulation_score(matrix: Union[np.ndarray, sparse.csr_matrix],
         diamond_mask = np.full((window_size, window_size), True)
         diamond_mask = np.triu(diamond_mask, ignore_diags - window_size)
         for row in range(window_size, chrom_len - window_size):
-            sub_mat = matrix[row - window_size: row, row + 1: row + window_size + 1][diamond_mask]
+            sub_mat = matrix[row - window_size: row, row +
+                             1: row + window_size + 1][diamond_mask]
             insu_score[row] = np.nanmean(sub_mat)
             if count:
                 counts[row] = np.sum(~np.isnan(sub_mat))
 
     else:
-        raise ValueError("Only support for scipy.sparse.csr_matrix and np.ndarray")
+        raise ValueError(
+            "Only support for scipy.sparse.csr_matrix and np.ndarray")
 
     if normalize:
         insu_score = np.log2(insu_score / np.nanmean(insu_score))
@@ -356,7 +362,8 @@ def train_hmm(clr: cooler.Cooler, mix_num: int = 3, discore_fn=di_score):
     for chrom in clr.chromnames:
         matrix = clr.matrix(sparse=True).fetch(chrom).tocsr()
         di_array = discore_fn(matrix)
-        gap_mask = remove_small_gap(np.isnan(clr.bins().fetch(chrom)['weight'].values))
+        gap_mask = remove_small_gap(
+            np.isnan(clr.bins().fetch(chrom)['weight'].values))
         di_dict[chrom] = split_diarray(di_array, gap_mask)
 
     train_data = []

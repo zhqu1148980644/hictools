@@ -503,28 +503,32 @@ def find_peaks(backgrounds: list,
     enrich_ratio = np.concatenate(enrich_ratio)
 
     # Multiple test. Filtering insignificant point after calculating padj using fdr_bh multiple test method.
+    # print(f'Before multiple test: {indices[0].size}')
     pvals, padjs, rejects = test_fn(indices, contacts_array, lambda_array)
     peaks = (indices, contacts_array, lambda_array, enrich_ratio, pvals, padjs)
 
     reject = np.all(rejects, axis=0)
     peaks = tuple(mask_array(reject, *peaks))
+    # print(f'After multiple test: {peaks[0][0].size}')
 
     # Apply greedy clustering to merge  points into confidant peaks.
     peak_indexs, shapes = cluster_fn(peaks[0], peaks[1], peaks[2])
     peaks = (*tuple(index_array(peak_indexs, *peaks)), shapes)
+    # print(f'After cluster: {peaks[0][0].size}')
 
     # Filter by gap_region, fold changes(enrichment) and singlet peak's sum-qvalue.
     valid_mask = filter_fn(peaks)
     peaks = tuple(mask_array(valid_mask, *peaks))
+    # print(f'After filter: {peaks[0][0].size}')
 
     return peaks
 
 
 @suppress_warning(warning_msg=ResourceWarning)
-def hiccups(observed_fetcher: Callable[[str, tuple], np.ndarray],
-            expected_fetcher: Callable[[str, tuple], np.ndarray],
-            factors_fetcher: Callable[[str, tuple], np.ndarray],
-            chunks: Iterable[Tuple[str, Tuple[slice, slice]]],
+def hiccups(observed_fetcher: Callable,
+            expected_fetcher: Callable,
+            factors_fetcher: Callable,
+            chunks: Iterable[tuple],
             kernels: Tuple[np.ndarray],
             inner_radius: int = 2,
             outer_radius: int = 5,

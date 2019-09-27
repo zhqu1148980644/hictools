@@ -16,6 +16,109 @@ from .. import config
 CPU_CORE = multiprocessing.cpu_count()
 
 
+# TODO fix
+# def infer_mat(mat,
+#               mask: np.ndarray = None,
+#               mask_ratio: float = 0.2,
+#               check_symmetric: bool = False,
+#               copy: bool = False) -> tuple:
+#     """Maintain non-zero contacts outside bad regions in a triangular sparse matrix.\n
+#     When calculating decay, always keep contacts outside bad regions to non-nan, and keep contacts within bad regions to nan.\n
+#     This step could take considerable time as dense matrix enable the fast computaion of decay whereas sparse matrix
+#     can reduce space occupancy and speed up the calculation of OE matrix.\n
+#
+#     :param mat: np.ndarray/scipy.sparse.sparse_matrix.
+#     :param mask: np.ndarray.
+#     :param mask_ratio: float.
+#     :param span_fn: callable.
+#     :param check_symmetric: bool.
+#     :param copy: bool.
+#     :return: tuple(scipy.sparse.coo_matrix, np.ndarray, np.ndarray).
+#     """
+#
+#     def find_mask(nan_mat: np.ndarray):
+#         last = None
+#         last_row = -1
+#         while 1:
+#             row = np.random.randint(mat.shape[0])
+#             if row != last_row and not np.alltrue(nan_mat[row]):
+#                 if last is None:
+#                     last = nan_mat[row]
+#                 elif np.all(last == nan_mat[row]):
+#                     return ~last
+#                 else:
+#                     return None
+#             last_row = row
+#
+#     def mask_by_ratio(mat: np.ndarray) -> np.ndarray:
+#         col_mean = np.nanmean(mat, axis=0)
+#         return col_mean > (np.mean(col_mean) * mask_ratio)
+#
+#     if check_symmetric and not is_symmetric(mat):
+#         raise ValueError('Matrix is not symmetric.')
+#
+#     if copy:
+#         mat = mat.copy()
+#
+#     if not isinstance(mat, np.ndarray) and not isinstance(mat, sparse.coo_matrix):
+#         mat = mat.tocoo(copy=False)
+#
+#     if mask is None:
+#         if not isinstance(mat, np.ndarray):
+#             mat_cache = mat
+#             mat = mat.toarray()
+#
+#         nan_mat = np.isnan(mat)
+#         contain_nan = nan_mat.any()
+#         if contain_nan:
+#             mask = find_mask(nan_mat)
+#             if mask is None:
+#                 mask = mask_by_ratio(mat)
+#         else:
+#             mask = mask_by_ratio(mat)
+#         nan_mask = ~(mask[:, np.newaxis] * mask[np.newaxis, :])
+#         if contain_nan and nan_mat[~nan_mask].any():
+#             mat[nan_mat] = 0
+#         mat[nan_mask] = np.nan
+#         decay = np.array(tuple(get_decay(mat)))
+#
+#         if not isinstance(mat, np.ndarray):
+#             mat = sparse.triu(mat_cache)
+#             mat.eliminate_zeros()
+#             mat.data[np.isnan(nan_mask[mat.nonzero()])] = 0
+#             mat.data[np.isnan(mat.data)] = 0
+#             mat.eliminate_zeros()
+#         else:
+#             mat[nan_mask] = 0
+#             mat = sparse.triu(mat, format='coo'), mask, decay
+#
+#     else:
+#         if not isinstance(mat, np.ndarray):
+#             nan_mask = ~(mask[:, np.newaxis] * mask[np.newaxis, :])
+#             mat.data[np.isnan(mat.data)] = 0
+#
+#             dense_mat = mat.toarray()
+#             dense_mat[nan_mask] = np.nan
+#             decay = np.array(tuple(get_decay(dense_mat)))
+#
+#             mat = sparse.triu(mat)
+#             mat.eliminate_zeros()
+#             mat.data[np.isnan(nan_mask[mat.nonzero()])] = 0
+#             mat.eliminate_zeros()
+#         else:
+#             nan_mat = np.isnan(mat)
+#             contain_nan = nan_mat.any()
+#             nan_mask = ~(mask[:, np.newaxis] * mask[np.newaxis, :])
+#             if contain_nan & nan_mat[~nan_mask].any():
+#                 mat[nan_mat] = 0
+#             mat[nan_mask] = np.nan
+#             decay = np.array(tuple(get_decay(mat)))
+#             mat[nan_mask] = 0
+#             mat = sparse.triu(mat, format='coo')
+#
+#     return mat, mask, decay
+
+
 def suppress_warning(func=None, warning_msg=RuntimeWarning):
     """Ignore the given type of warning omitted from the function. The default warning is RuntimeWarning."""
     if func is None:
@@ -121,11 +224,13 @@ def lazy_method(func):
 class NodupsDict(UserDict):
     def __setitem__(self, key, value):
         if key in self:
-            raise RuntimeError(f"Can't register method with the same name: '{key}' multiple times.")
+            raise RuntimeError(
+                f"Can't register method with the same name: '{key}' multiple times.")
         super().__setitem__(key, value)
 
 
 class multi_methods(object):
+    # TODO Add support for descriptor.G
     """Dispatch multi methods through attributes fetching"""
 
     def __new__(cls, func=None, **kwargs):
@@ -141,7 +246,7 @@ class multi_methods(object):
 
     def __get__(self, instance, owner):
         @wraps(self._func)
-        def sub_method(self, *args, **kwargs):
+        def sub_method(obj, *args, **kwargs):
             if args or kwargs:
                 for _name in fn_names:
                     sub_method.__dict__[_name] = partial(
@@ -220,6 +325,7 @@ class RayWrap(object):
                         self.ray.init(*args, **kwargs)
 
     def remote(self, obj):
+        """Entry point."""
         if self.enable_ray:
             return self.ray.remote(obj)
         else:
@@ -231,7 +337,7 @@ class RayWrap(object):
                 raise TypeError("Only support remote fcuntion or class(Actor)")
 
     def _mimic_actor(self, cls):
-        """mimic Actor's behavior"""
+        """Mimic Actor's behavior."""
 
         class _Actor(cls):
             def __init__(obj, *args, **kwargs):
@@ -251,7 +357,7 @@ class RayWrap(object):
         return _Actor
 
     def _mimic_func(self, obj: Callable):
-        """ mimic remote function """
+        """Mimic remote function."""
         log = get_logger()
 
         def _remote(*args, **kwargs):
@@ -289,7 +395,7 @@ class MethodWithRemote(object):
         else:
             return self
 
-    def remote(self, *args, **kwargs):  # mimic actor.func.remote()
+    def remote(self, *args, **kwargs):
         log = get_logger("Mimic remote")
         log.debug(f"Remote method '{self.mth.__qualname__}' is called.")
         id_ = f"{self.owner.__name__}[{id(self.instance)}]" + \

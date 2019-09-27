@@ -10,7 +10,7 @@ from scipy import sparse
 from .utils.numtools import is_symmetric, apply_along_diags
 
 
-def get_decay(mat: Union[np.ndarray, sparse.coo_matrix],
+def get_decay(mat: Union[np.ndarray],
               bin_span: Sequence = None,
               max_diag: int = None,
               func: Callable = np.mean,
@@ -172,8 +172,7 @@ def corr_sorter(chrom_matrix, eigvecs: np.ndarray, corr=None, **kwargs):
 
 
 class Pca(object):
-    """Implementation of principal component analysis. Reference: sklearn
-    """
+    """Implementation of principal component analysis. Reference: sklearn"""
 
     def __init__(self, mat):
         """

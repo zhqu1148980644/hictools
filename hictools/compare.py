@@ -67,7 +67,3 @@ def selfish(mat1: Union[np.ndarray, sparse.spmatrix],
     padjs *= np.sign(pvals)
 
     return indices, np.vstack([padjs, pvals, radius])
-
-
-def mcmc_tad():
-    pass

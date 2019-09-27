@@ -2,6 +2,7 @@
 .idea
 .git
 .pytest_cache
+.vscode
 
 # build
 *.gch
@@ -20,3 +21,4 @@ benchmark/download/
 benchmark/test.mcool
 test/data/Rao2014-K562-MboI-allreps-filtered.10kb.mcool
 test/data/Rao2014-K562-MboI-allreps-filtered.10kb.cool
+deprecated.py

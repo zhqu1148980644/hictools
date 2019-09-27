@@ -104,8 +104,8 @@ def get_diag(mat: np.ndarray, offset: int = 0) -> np.ndarray:
 def apply_along_diags(func: Callable,
                       mat: np.ndarray,
                       offsets: Iterable,
-                      filter_fn: Callable) -> Generator:
-    """Apply a fucntion to a cetain set of diagonals.
+                      filter_fn: Callable = None) -> Generator:
+    """Apply a function to a cetain set of diagonals.
     :param func: Callable. Function applied to each diagonal.
     :param mat: np.ndarray. 2d ndarray.
     :param offsets: list. List of diagonal offsets.
@@ -130,8 +130,7 @@ def fill_diags(mat: np.ndarray,
         mat = mat.copy()
 
     for diag_index, fill_value in zip(diags, fill_values):
-        diag = get_diag(mat, diag_index)
-        diag = fill_value
+        get_diag(mat, diag_index)[:] = fill_value
 
     return mat
 

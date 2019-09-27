@@ -34,7 +34,7 @@ class TestChromMatrix(object):
         chrom = get_chrom(100000)
         shape = chrom.shape
         sp_ob = chrom.observed(sparse=True)
-        ds_ob = chrom.observed()
+        ds_ob = chrom.observed(sparse=False)
         un_normalized_ob = chrom.observed(balance=False)
         assert isinstance(sp_ob, sparse.coo_matrix)
         assert isinstance(ds_ob, np.ndarray)
@@ -44,7 +44,8 @@ class TestChromMatrix(object):
     def test_decay(self, get_chrom):
         chrom = get_chrom(100000)
         assert chrom.decay().size == chrom.shape[0]
-        assert np.all(chrom.decay(ndiags=100)[100:] == 0)
+        assert (chrom.decay()[0] 
+                - (np.nansum(chrom._observed.diagonal()) / chrom.num_valid[0])) < 1e-5
 
     def test_expected(self, get_chrom):
         chrom = get_chrom(100000)
