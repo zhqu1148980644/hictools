@@ -1,22 +1,122 @@
 """Utils for other modules."""
+import functools
 import inspect
 import logging
-import functools
-import itertools
 import multiprocessing
 import warnings
-import numbers
 from collections import UserDict
-from functools import partial, wraps
-from typing import Union, Iterable, Callable
 from contextlib import redirect_stderr
+from functools import partial, wraps
+from typing import Callable
 
 import numpy as np
-from scipy import sparse
 
-from . import config
+from .. import config
 
 CPU_CORE = multiprocessing.cpu_count()
+
+
+# TODO fix
+# def infer_mat(mat,
+#               mask: np.ndarray = None,
+#               mask_ratio: float = 0.2,
+#               check_symmetric: bool = False,
+#               copy: bool = False) -> tuple:
+#     """Maintain non-zero contacts outside bad regions in a triangular sparse matrix.\n
+#     When calculating decay, always keep contacts outside bad regions to non-nan, and keep contacts within bad regions to nan.\n
+#     This step could take considerable time as dense matrix enable the fast computaion of decay whereas sparse matrix
+#     can reduce space occupancy and speed up the calculation of OE matrix.\n
+#
+#     :param mat: np.ndarray/scipy.sparse.sparse_matrix.
+#     :param mask: np.ndarray.
+#     :param mask_ratio: float.
+#     :param span_fn: callable.
+#     :param check_symmetric: bool.
+#     :param copy: bool.
+#     :return: tuple(scipy.sparse.coo_matrix, np.ndarray, np.ndarray).
+#     """
+#
+#     def find_mask(nan_mat: np.ndarray):
+#         last = None
+#         last_row = -1
+#         while 1:
+#             row = np.random.randint(mat.shape[0])
+#             if row != last_row and not np.alltrue(nan_mat[row]):
+#                 if last is None:
+#                     last = nan_mat[row]
+#                 elif np.all(last == nan_mat[row]):
+#                     return ~last
+#                 else:
+#                     return None
+#             last_row = row
+#
+#     def mask_by_ratio(mat: np.ndarray) -> np.ndarray:
+#         col_mean = np.nanmean(mat, axis=0)
+#         return col_mean > (np.mean(col_mean) * mask_ratio)
+#
+#     if check_symmetric and not is_symmetric(mat):
+#         raise ValueError('Matrix is not symmetric.')
+#
+#     if copy:
+#         mat = mat.copy()
+#
+#     if not isinstance(mat, np.ndarray) and not isinstance(mat, sparse.coo_matrix):
+#         mat = mat.tocoo(copy=False)
+#
+#     if mask is None:
+#         if not isinstance(mat, np.ndarray):
+#             mat_cache = mat
+#             mat = mat.toarray()
+#
+#         nan_mat = np.isnan(mat)
+#         contain_nan = nan_mat.any()
+#         if contain_nan:
+#             mask = find_mask(nan_mat)
+#             if mask is None:
+#                 mask = mask_by_ratio(mat)
+#         else:
+#             mask = mask_by_ratio(mat)
+#         nan_mask = ~(mask[:, np.newaxis] * mask[np.newaxis, :])
+#         if contain_nan and nan_mat[~nan_mask].any():
+#             mat[nan_mat] = 0
+#         mat[nan_mask] = np.nan
+#         decay = np.array(tuple(get_decay(mat)))
+#
+#         if not isinstance(mat, np.ndarray):
+#             mat = sparse.triu(mat_cache)
+#             mat.eliminate_zeros()
+#             mat.data[np.isnan(nan_mask[mat.nonzero()])] = 0
+#             mat.data[np.isnan(mat.data)] = 0
+#             mat.eliminate_zeros()
+#         else:
+#             mat[nan_mask] = 0
+#             mat = sparse.triu(mat, format='coo'), mask, decay
+#
+#     else:
+#         if not isinstance(mat, np.ndarray):
+#             nan_mask = ~(mask[:, np.newaxis] * mask[np.newaxis, :])
+#             mat.data[np.isnan(mat.data)] = 0
+#
+#             dense_mat = mat.toarray()
+#             dense_mat[nan_mask] = np.nan
+#             decay = np.array(tuple(get_decay(dense_mat)))
+#
+#             mat = sparse.triu(mat)
+#             mat.eliminate_zeros()
+#             mat.data[np.isnan(nan_mask[mat.nonzero()])] = 0
+#             mat.eliminate_zeros()
+#         else:
+#             nan_mat = np.isnan(mat)
+#             contain_nan = nan_mat.any()
+#             nan_mask = ~(mask[:, np.newaxis] * mask[np.newaxis, :])
+#             if contain_nan & nan_mat[~nan_mask].any():
+#                 mat[nan_mat] = 0
+#             mat[nan_mask] = np.nan
+#             decay = np.array(tuple(get_decay(mat)))
+#             mat[nan_mask] = 0
+#             mat = sparse.triu(mat, format='coo')
+#
+#     return mat, mask, decay
 
 
 def suppress_warning(func=None, warning_msg=RuntimeWarning):
@@ -89,68 +189,6 @@ def remove_small_gap(gap_mask: np.ndarray, gap_size: int = 1) -> np.ndarray:
     return gap_mask
 
 
-@suppress_warning
-def is_symmetric(mat: Union[np.ndarray, sparse.spmatrix],
-                 rtol: float = 1e-05,
-                 atol: float = 1e-08) -> bool:
-    """Check if the input matrix is symmetric.
-
-    :param mat: np.ndarray/scipy.sparse.spmatrix.
-    :param rtol: float. The relative tolerance parameter. see np.allclose.
-    :param atol: float. The absolute tolerance parameter. see np.allclose
-    :return: bool. True if the input matrix is symmetric.
-    """
-    if isinstance(mat, np.ndarray):
-        data, data_t = mat, mat.T
-        return np.allclose(data, data_t, rtol=rtol, atol=atol, equal_nan=True)
-    elif sparse.isspmatrix(mat):
-        mat = mat.copy()
-        mat.data[np.isnan(mat.data)] = 0
-        return (np.abs(mat - mat.T) > rtol).nnz == 0
-    else:
-        raise ValueError('Only support for np.ndarray and scipy.sparse_matrix')
-
-
-def fill_diag(mat: np.ndarray,
-              offset: int = 0,
-              fill_value: float = 1.0,
-              copy: bool = False) -> np.ndarray:
-    """Fill specified value in a given diagonal of a 2d ndarray.\n
-    Reference: https://stackoverflow.com/questions/9958577/changing-the-values-of-the-diagonal-of-a-matrix-in-numpy
-    :param mat: np.ndarray.
-    :param offset: int. The diagonal's index. 0 means the main diagonal.
-    :param fill_value: float. Value to fill the diagonal.
-    :param copy: bool. Set True to fill value in the copy of input matrix.
-    :return: np.ndarray. Matrix with the 'offset' diagonal filled with 'fill_value'.
-    """
-
-    if copy:
-        mat = mat.copy()
-    length = mat.shape[1]
-    st = max(offset, -length * offset)
-    ed = max(0, length - offset) * length
-    mat.ravel()[st: ed: length + 1] = fill_value
-
-    return mat
-
-
-def fill_diags(mat: np.ndarray,
-               ignore_diags: Union[int, Iterable] = 1,
-               fill_values: Union[float, Iterable] = 1.,
-               copy: bool = False) -> np.ndarray:
-    if isinstance(ignore_diags, int):
-        ignore_diags = range(-ignore_diags + 1, ignore_diags)
-    if isinstance(fill_values, numbers.Number):
-        fill_values = itertools.repeat(fill_values)
-    if copy:
-        mat = mat.copy()
-
-    for diag_index, fill_value in zip(ignore_diags, fill_values):
-        fill_diag(mat, diag_index, fill_value)
-
-    return mat
-
-
 class LazyProperty(object):
     """Lazy property for caching computed properties"""
 
@@ -186,11 +224,13 @@ def lazy_method(func):
 class NodupsDict(UserDict):
     def __setitem__(self, key, value):
         if key in self:
-            raise RuntimeError(f"Can't register method with the same name: '{key}' multiple times.")
+            raise RuntimeError(
+                f"Can't register method with the same name: '{key}' multiple times.")
         super().__setitem__(key, value)
 
 
 class multi_methods(object):
+    # TODO Add support for descriptor.G
     """Dispatch multi methods through attributes fetching"""
 
     def __new__(cls, func=None, **kwargs):
@@ -206,7 +246,7 @@ class multi_methods(object):
 
     def __get__(self, instance, owner):
         @wraps(self._func)
-        def sub_method(self, *args, **kwargs):
+        def sub_method(obj, *args, **kwargs):
             if args or kwargs:
                 for _name in fn_names:
                     sub_method.__dict__[_name] = partial(
@@ -215,9 +255,6 @@ class multi_methods(object):
                         **kwargs
                     )
             return sub_method
-
-        if '__doc__' not in self.__dict__:
-            self.__dict__['__doc__'] = self._doc
 
         fn_names = self._methods.keys()
         bound_method = type(self.register)
@@ -228,7 +265,8 @@ class multi_methods(object):
             else:
                 sub_method.__dict__[name] = method
 
-        sub_method.__dict__['__doc__'] = self._doc
+        self.__doc__ = self._doc
+        sub_method.__doc__ = self._doc
         if instance is not None:
             return bound_method(sub_method, instance)
         else:
@@ -287,6 +325,7 @@ class RayWrap(object):
                         self.ray.init(*args, **kwargs)
 
     def remote(self, obj):
+        """Entry point."""
         if self.enable_ray:
             return self.ray.remote(obj)
         else:
@@ -298,7 +337,7 @@ class RayWrap(object):
                 raise TypeError("Only support remote fcuntion or class(Actor)")
 
     def _mimic_actor(self, cls):
-        """mimic Actor's behavior"""
+        """Mimic Actor's behavior."""
 
         class _Actor(cls):
             def __init__(obj, *args, **kwargs):
@@ -317,8 +356,8 @@ class RayWrap(object):
 
         return _Actor
 
-    def _mimic_func(self, obj:Callable):
-        """ mimic remote function """
+    def _mimic_func(self, obj: Callable):
+        """Mimic remote function."""
         log = get_logger()
 
         def _remote(*args, **kwargs):
@@ -356,7 +395,7 @@ class MethodWithRemote(object):
         else:
             return self
 
-    def remote(self, *args, **kwargs):  # mimic actor.func.remote()
+    def remote(self, *args, **kwargs):
         log = get_logger("Mimic remote")
         log.debug(f"Remote method '{self.mth.__qualname__}' is called.")
         id_ = f"{self.owner.__name__}[{id(self.instance)}]" + \
@@ -366,7 +405,7 @@ class MethodWithRemote(object):
         return id_
 
     def __call__(self, *args, **kwargs):
-        msg =  "Actor methods cannot be called directly." + \
+        msg = "Actor methods cannot be called directly." + \
               f"Instead of running 'object.{self.mth.__name__}()', " + \
               f"try 'object.{self.mth.__name__}.remote()'."
         raise Exception(msg)
@@ -377,7 +416,7 @@ def get_logger(name: str = None) -> logging.Logger:
     :param name: the name of the Logger object, if not set will
     set a default name according to it's caller.
     """
-    from inspect import currentframe, getframeinfo, ismethod
+    from inspect import currentframe, getframeinfo
 
     def get_caller():
         """
@@ -390,20 +429,24 @@ def get_logger(name: str = None) -> logging.Logger:
         func = outer_f.f_locals.get(
             func_name,
             outer_f.f_globals.get(func_name))
-        if func is None:  # call from click command
+        # call from click command
+        if func is None:
             func = cal_f.f_globals.get(func_name)
-        if (func is None) and ('self' in outer_f.f_locals):  # call from method
+        # call from method
+        if (func is None) and ('self' in outer_f.f_locals):
             try:
                 func = getattr(outer_f.f_locals.get('self'), func_name)
             except AttributeError:
                 pass
         return func
 
-    if name is None:  # set a default name to logger
+    # set a default name to logger
+    if name is None:
         caller = get_caller()
         assert caller is not None, "Caller not Found."
         import click
-        if isinstance(caller, click.core.Command):  # click command
+        # click command
+        if isinstance(caller, click.core.Command):
             name = 'CLI.' + caller.name
         else:  # function & method
             name = caller.__module__ + '.'

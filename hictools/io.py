@@ -6,12 +6,11 @@ import subprocess
 from collections import OrderedDict, namedtuple
 from typing import Iterable, Tuple
 
+import h5py
 import numpy as np
 import pandas as pd
-import h5py
-import pyBigWig
 
-from .utils import get_logger
+from .utils.utils import get_logger
 
 
 class auto_open(object):
@@ -185,6 +184,7 @@ def records2bigwigs(df: pd.DataFrame, prefix: str):
     :param df: records dataframe, contain fields: chrom, start, end.
     :param prefix: prefix of output bigwig files.
     """
+    import pyBigWig
     required_fields = ['chrom', 'start', 'end']
     assert all((f in df) for f in required_fields), \
         f"records dataframe need fields: {', '.join(required_fields)}"

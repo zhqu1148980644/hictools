@@ -1,16 +1,18 @@
 """Command line tools."""
 
+import logging
 import sys
 from collections import OrderedDict
 from functools import partial
-import logging
 
 import click
 import cooler
 import numpy as np
 
+from . import config
 from .api import ChromMatrix as _ChromMatrix
 from .compartment import corr_sorter, plain_sorter
+from .io import records2bigwigs
 from .peaks import (
     hiccups,
     fetch_kernels,
@@ -19,13 +21,11 @@ from .peaks import (
     factors_fetcher,
     chunks_gen
 )
-from .utils import (
+from .utils.utils import (
     CPU_CORE,
     RayWrap,
     get_logger
 )
-from .io import records2bigwigs
-from . import config
 
 click.option = partial(click.option, show_default=True)
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -149,12 +149,13 @@ def hiccups(cool, output,
     ray = RayWrap(num_cpus=nproc)
     co, _, chrom_dict = fetch_chrom_dict(cool)
 
+    num_diags = max_dis // co.binsize
     expected_dict = OrderedDict()
     start_dict = OrderedDict()
     factor_dict = OrderedDict()
     chrom_size_dict = OrderedDict()
     for key, chrom in chrom_dict.items():
-        expected_dict[key] = chrom.expected.remote()
+        expected_dict[key] = chrom.expected.remote(ndiags=num_diags + 20)
         chrom_bin = co.bins().fetch(key)
         start_dict[key] = chrom_bin.index.min()
         factor_dict[key] = np.array(chrom_bin['weight'])
@@ -165,7 +166,7 @@ def hiccups(cool, output,
     factors = partial(factors_fetcher, factor_dict=factor_dict)
     chunks = chunks_gen(
         chromsizes=chrom_size_dict,
-        band_width=max_dis // co.binsize,
+        band_width=num_diags,
         height=chunk_size,
         ov_length=2 * outer_radius)
     kernels = fetch_kernels(inner_radius, outer_radius)

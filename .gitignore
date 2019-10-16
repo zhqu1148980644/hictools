@@ -1,12 +1,24 @@
+# history
 .idea
 .git
 .pytest_cache
-build
-dist
-hictools.egg-info
+.vscode
+
+# build
+*.gch
+*.html
+*.so
+*.cpp
 *.py[cod]
-__pycache__/
+*build*
+dist
+build
+hictools.egg-info
+*__pycache__*
+
+# test
 benchmark/download/
 benchmark/test.mcool
 test/data/Rao2014-K562-MboI-allreps-filtered.10kb.mcool
 test/data/Rao2014-K562-MboI-allreps-filtered.10kb.cool
+deprecated.py
