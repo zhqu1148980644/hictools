@@ -3,7 +3,7 @@ import subprocess
 from pathlib import Path
 
 import slugid
-from watchgod.watcher import Change, DefaultWatcher
+from watchgod.watcher import DefaultWatcher
 
 from .utils import TileSet, TileSetDB, FileMonitor
 
@@ -60,7 +60,7 @@ watch = default_monitor = TilesetsMonitor(
 )
 
 
-@watch(r'.*\.(mcool|cool)$')
+@watch(r'.*\.mcool$')
 async def cooler(watcher, event):
     uuid = slugid.nice()
     await watcher.tilesets.update({
@@ -68,7 +68,7 @@ async def cooler(watcher, event):
             uuid=uuid,
             datafile=str(event.path),
             datatype="matrix",
-            filetype="mcool",
+            filetype="cooler",
         ).todict()
     })
 
@@ -90,7 +90,7 @@ async def bigwig(watcher, event):
 def bam(event):
     bam_index_path = Path(str(event.path) + ".bai")
     if not bam_index_path.exists():
-        subp = subprocess.call(["samtools", "index", str(event.path)])
+        subprocess.call(["samtools", "index", str(event.path)])
     return bam_index_path
 
 
@@ -120,5 +120,5 @@ def bedpe():
 
 
 @watch(r".*\.(chrom\.sizes|chromsizes|chromsize)$")
-def chromsizes():
+async def chromsizes(watcher, event):
     pass

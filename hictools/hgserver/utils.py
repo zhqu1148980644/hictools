@@ -1,10 +1,10 @@
 import re
 import inspect
 import asyncio
-from collections import namedtuple, OrderedDict
+from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
-from functools import partial, wraps
+from functools import partial
 from hashlib import blake2b
 from pathlib import Path
 
@@ -162,20 +162,21 @@ class TileSetDB(object):
         self.store_uri = store_uri
         self.db = None
 
-    async def connect(self, store_uri="sqlite:///test.db"):
+    async def connect(self, store_uri=None):
         if store_uri is not None:
             self.store_uri = store_uri
         try:
+            engine = None
             engine = sqlalchemy.create_engine(self.store_uri)
             if not self.table.exists(engine):
                 self.table.metadata.create_all(engine)
             if not self.table.exists(engine):
                 raise RuntimeError("Table error.")
         except Exception as e:
-            print(e)
-            return
+            raise e
         finally:
-            engine.dispose()
+            if engine is not None:
+                engine.dispose()
 
         if self.db is None or not self.db.is_connected:
             self.db = Database(self.store_uri)
@@ -186,7 +187,9 @@ class TileSetDB(object):
             await self.db.disconnect()
 
     # TODO handling ordered by
-    async def items(self, query=uuid_tileset_query, **kwargs):
+    async def items(self, query=None, **kwargs):
+        if query is None:
+            query = select([self.table.c.uuid, self.table.c.tileset])
         for key, value in kwargs.items():
             if key not in self.columns:
                 raise KeyError(key)
@@ -198,9 +201,8 @@ class TileSetDB(object):
             else:
                 query = getattr(query, 'where')(
                     getattr(self.table.c, key) == value)
-
-        return [(uuid, tileset)
-                async for uuid, tileset in self.db.iterate(query)]
+        return {uuid: tileset
+                async for uuid, tileset in self.db.iterate(query)}
 
     async def update(self, tilesets):
         wrapped_tilesets = []
@@ -219,11 +221,10 @@ class TileSetDB(object):
     async def remove(self, uuids):
         if not isinstance(uuids, list):
             uuids = [uuids]
-        table = self.table
         return await self.db.execute(
-            table
+            self.table
             .delete()
-            .where(table.c.uuid.in_(uuids))
+            .where(self.table.c.uuid.in_(uuids))
         )
 
 
@@ -264,7 +265,7 @@ class TileSet(object):
             path = Path(path)
             hash_string = f"{path.resolve()}{path.stat().st_size}{path.stat().st_mtime}"
             h.update(bytes(hash_string, encoding="utf-8"))
-        except Exception as e:
+        except:
             return ""
         return h.hexdigest()
 
@@ -283,12 +284,12 @@ class TileSet(object):
     def tileset_info(cls, tileset_dict):
         filetype = tileset_dict.get("filetype", "")
         if filetype == "bam":
-            info = bam_tiles.tileset_info(tileset_dict.datafile)
+            info = bam_tiles.tileset_info(tileset_dict['datafile'])
             info['max_tile_width'] = int(1e5)
         elif filetype == "cooler":
-            info = cooler_tiles.tileset_info(tileset_dict.datafile)
+            info = cooler_tiles.tileset_info(tileset_dict['datafile'])
         elif filetype == "bigwig":
-            info = bigwig_tiles.tileset_info(tileset_dict.datafile)
+            info = bigwig_tiles.tileset_info(tileset_dict['datafile'])
         else:
             info = {'error': f"Unknown tileset filetype: {filetype}"}
 
@@ -306,9 +307,9 @@ class TileSet(object):
                 index_filename=tileset_dict.index_filename
             )
         elif filetype == "cooler":
-            data = cooler_tiles.tiles(tileset_dict.datafile, tids)
+            data = cooler_tiles.tiles(tileset_dict['datafile'], tids)
         elif filetype == "bigwig":
-            data = bigwig_tiles.tiles(tileset_dict.datafile, tids)
+            data = bigwig_tiles.tiles(tileset_dict['datafile'], tids)
         else:
             data = {'error': f"Unknown tileset filetype: {filetype}"}
 

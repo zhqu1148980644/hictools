@@ -28,9 +28,9 @@ def create_app(db):
     async def shutdown_event():
         await db.disconnect()
 
-    #**************************************db dependant operation********************************#
+    # **************************************db dependant operation********************************#
     async def fetch_tilesets(**kwargs):
-        tilesets = dict(await db.items(**kwargs))
+        tilesets = await db.items(**kwargs)
         uuids_remove = []
         for uuid in list(tilesets.keys()):
             if not Path(tilesets[uuid]['datafile']).exists():
@@ -38,7 +38,7 @@ def create_app(db):
                 del tilesets[uuid]
         await db.remove(uuids_remove)
         return tilesets
-    #*******************************************************************************************#
+    # *******************************************************************************************#
 
     # handling ordered by through fetch_tilesets
     @app.get('/api/v1/tilesets/', response_class=UJSONResponse)
@@ -78,7 +78,7 @@ def create_app(db):
                      for uuid, tids
                      in itertools.groupby(uuids, lambda x: x.split('.')[0])}
         tilesets = await fetch_tilesets(uuid=list(uuid_tids.keys()))
-        tiles_list = [Tileset.tiles(tilesets[uuid], uuid_tids[uuid])
+        tiles_list = [TileSet.tiles(tilesets[uuid], uuid_tids[uuid])
                       for uuid in tilesets]
 
         return {tid: tile
@@ -101,7 +101,7 @@ class Server(object):
         self.db = tileset_db
         self.app = create_app(self.db)
 
-    def run(self, host="0.0.0.0", port=5555, store_uri=None):
+    def run(self, host="0.0.0.0", port=5555, store_uri=None, **kwargs):
         if store_uri is not None:
             self.db.store_uri = store_uri
-        uvicorn.run(self.app, host=host, port=port)
+        uvicorn.run(self.app, host=host, port=port, **kwargs)
