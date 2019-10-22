@@ -453,6 +453,7 @@ def decomposition(cool, output, balance, method,
         raise IOError("Only support tab or bigwig output format.")
 
 
+from .hgserver.cli import hgserver
+
 if __name__ == "__main__":
-    from .hgserver.cli import *
     cli()

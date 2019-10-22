@@ -112,6 +112,7 @@ def control_nginx(default_config, write_to='/tmp/tmp_hgserver_nginx.conf'):
             raise RuntimeError(
                 'No nginx detected. Please install nginx with "conda install nginx".')
 
+        stop_nginx()
         for i in range(len(socket_urls)):
             socket_urls[i] = socket_urls[i].replace('0.0.0.0', 'localhost')
         servers = "\n".join(f"server {url};" for url in socket_urls) + '\n'
@@ -119,12 +120,12 @@ def control_nginx(default_config, write_to='/tmp/tmp_hgserver_nginx.conf'):
         config = config.replace('{port}', str(port))
         with open(write_to, 'w') as f:
             f.write(config)
-        stop_nginx()
         subprocess.check_call(['nginx', '-c', write_to])
 
     def stop_nginx():
         try:
-            subprocess.check_call(['nginx', '-c', write_to, '-s', 'stop'])
+            subprocess.call(['nginx', '-c', write_to, '-s',
+                             'stop'], stderr=subprocess.DEVNULL)
             os.remove(write_to)
         except:
             pass
@@ -146,10 +147,12 @@ def hgserver(log_level):
 
 
 @hgserver.command()
-@click.option('--addr', '-a', type=str, default="0.0.0.0:6666", nargs=1,
-              help="Example: 0.0.0.0:6666")
+@click.argument('addr', type=str, default="0.0.0.0:6666", nargs=1)
 def view(addr):
-    """Start higlass web app."""
+    """Start higlass web app.
+
+    Example: view 6666
+    """
     # Could use
     app = FastAPI()
     app.add_middleware(
@@ -167,7 +170,8 @@ def view(addr):
     addr, kwargs = addr_to_kwargs(addr)
     if kwargs.get('uds') is not None:
         raise ValueError("Only support for TCP.")
-    click.launch(f"http://localhost:{kwargs['port']}/")
+    # click.launch(f"http://localhost:{kwargs['port']}/")
+    echo(f"Go visit http://{IP}:{kwargs['port']} in browser.", "green")
     uvicorn.run(app, log_level=logging_level, **kwargs)
 
 
@@ -177,21 +181,21 @@ def view(addr):
               help="Api sever port served by nginx.")
 @click.option('--store_uri', type=str, default="sqlite:////tmp/test.db",
               help='Database URI. Example: sqlite:///path_to_hold_my_database/tilesets.db')
-@click.option('--nworkers', '-n', type=int, default=0,
+@click.option('--num_worker', '-n', type=int, default=0,
               help="Number of randomly opened backend api workers.")
 @click.option('--addr', '-a', type=str, default=["0.0.0.0:5555"], multiple=True,
               help="Api server backend address. Eaxmple: 0.0.0.0:5555  unix:/tmp/apiserver.sock")
-def serve(paths, port, store_uri, addr, nworkers):
+def serve(paths, port, store_uri, addr, num_worker):
     """Start api server served by nginx with multiple backend api workers.
 
-    Example:  hgserver ./ --addr 0.0.0.0:5555 --addr 5556 --nworkers 2.
+    Example:  hgserver ./ --addr 0.0.0.0:5555 --addr 5556 --num_worker 2.
 
     This command will open 4 workers with two you explicitly specified and two randomly
     opened.
     """
     # pre check
     tmp_addrs = list(addr)
-    for i in range(nworkers):
+    for i in range(num_worker):
         tmp_addrs.append(f'unix:/tmp/hgserver_api_{i}.sock')
     addrs = dict(addr_to_kwargs(addr) for addr in tmp_addrs)
     paths = list(paths)
@@ -199,6 +203,13 @@ def serve(paths, port, store_uri, addr, nworkers):
         paths = [os.getcwd()]
     for i in range(len(paths)):
         paths[i] = Path(paths[i]).resolve()
+
+    start_nginx, stop_nginx = control_nginx(__doc__)
+    try:
+        start_nginx(port, list(addrs.keys()))
+    except RuntimeError as e:
+        print(r)
+        return
 
     # Dsipactch web workers and monitor
     loop = asyncio.get_event_loop()
@@ -216,8 +227,6 @@ def serve(paths, port, store_uri, addr, nworkers):
             partial(run_server, store_uri, **kwargs))
         )
 
-    start_nginx, stop_nginx = control_nginx(__doc__)
-    start_nginx(port, list(addrs.keys()))
     # show message
     echo('Monitering folders:', "green")
     for path in paths:
@@ -257,7 +266,7 @@ def start_apiserver(store_uri, addr):
 
 @control.command()
 @click.argument('paths', type=click.Path(exists=True, readable=True), nargs=-1)
-@click.option('--store_uri', type=str, default="sqlite:///test.db", help='Database URI.')
+@click.option('--store_uri', type=str, default="sqlite:////tmp/test.db", help='Database URI.')
 def start_monitor(paths, store_uri):
     for path in paths:
         default_monitor(path)

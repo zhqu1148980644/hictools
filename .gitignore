@@ -6,11 +6,11 @@
 
 # build
 *.gch
-*.html
 *.so
-*.cpp
 *.py[cod]
-*build*
+*.db
+.nfs*
+hictools/utils/cnumtools.cpp
 dist
 build
 hictools.egg-info
