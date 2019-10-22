@@ -11,7 +11,7 @@ import numpy as np
 
 from . import config
 from .api import ChromMatrix as _ChromMatrix
-from .compartment import corr_sorter, plain_sorter
+from .compartment import corr_sorter
 from .io import records2bigwigs
 from .peaks import (
     hiccups,
@@ -44,7 +44,8 @@ def fetch_chrom_dict(cool):
         weight = np.array(co.bins().fetch(chrom)['weight'])
         badbin_ratio = np.isnan(weight) / weight.size
         if badbin_ratio > 0.5:
-            log.warning(f"Skipped chromosome: {chrom} due to high percentage of bad regions.")
+            log.warning(
+                f"Skipped chromosome: {chrom} due to high percentage of bad regions.")
             continue
         chrom_dict[chrom] = ChromMatrix.remote(co, chrom)
 
@@ -141,7 +142,7 @@ def peaks():
     '--nproc', '-n', type=int, nargs=1, default=25,
     help='Number of cores for calculation'
 )
-def hiccups(cool, output,
+def Hiccups(cool, output,
             max_dis, inner_radius, outer_radius,
             chunk_size, fdrs, sigs, fold_changes,
             ignore_single_gap, bin_index, nproc):
@@ -428,7 +429,7 @@ def decomposition(cool, output, balance, method,
             method=method,
             balance=balance,
             numvecs=numvecs,
-            sort_fn=corr_sorter if sort else plain_sorter,
+            sort_fn=corr_sorter if sort else None,
             full=True,
             ignore_diags=ignore_diags
         )
@@ -444,7 +445,8 @@ def decomposition(cool, output, balance, method,
         records['com_0'] = coms
 
     if out_fmt == 'tab':
-        records.to_csv(output, sep='\t', header=True, index=False, na_rep="nan")
+        records.to_csv(output, sep='\t', header=True,
+                       index=False, na_rep="nan")
     elif out_fmt == 'bigwig':
         records2bigwigs(records, output.name)
     else:
@@ -452,4 +454,5 @@ def decomposition(cool, output, balance, method,
 
 
 if __name__ == "__main__":
+    from .hgserver.cli import *
     cli()

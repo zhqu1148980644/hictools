@@ -1,28 +1,50 @@
 """
-Description:
-class: TileSet     Determin which function needs to be called when fetching tiles, tileset_infos.
-class: TileSetDB   Used by both store and server. Handling the communication with database.
-TileSetMonitor:  Monitor file changes in watcher file. Auto conversion. Auto registration.
-tilesets_store:  only contain info of each tileset
-apiserver:
-    As fetching data may be computing expensive, multiple apiserver can be deployed to facilitate data rendering.
-    get:
-        Fetch tileset info from tilesets_store
-        Remove tileset if datafile doesn't exists
-        Call decent fucntions to get tiles, tileset_infos
-    post: Store new tileset in database.
+worker_processes auto;
+pid var/run/nginx.pid;
+events {
+    worker_connections 4096;
+}
 
-            server:                   store:
-            apiserver1
-nginx <-->  apiserver2    <------>    (tilesets_store  <------->  TileSetMonitor)
-  |         apiserver3
-  |         ...
-  |
-client: browser
+http {
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    gzip on;
+    gzip_disable "msie6";
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_buffers 16 8k;
+    gzip_http_version 1.1;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript;
+    log_format log '$remote_addr [$time_local] "$request" $status'
+                           '"$upstream_addr" $upstream_response_time $upstream_http_etag';
+
+    upstream api_server {
+        {server}
+    }
+
+    server {
+        listen  *:{port};
+        charset utf8;
+        server_name www.hgserver.com;
+        access_log /tmp/hgserver_access.log log;
+        error_log /tmp/hgserver_error.log;
+
+        location / {
+            proxy_pass http://api_server;
+        }
+    }
+}
 """
+import os
 import socket
+import shutil
 import asyncio
 import contextlib
+import subprocess
 from pathlib import Path
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
@@ -33,20 +55,12 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse
 
+from ..cli import cli
 from .server import Server
 from .store import default_monitor
 
 click.option = partial(click.option, show_default=True)
 logging_level = "error"
-
-
-def echo(text, fg="white", bg="black"):
-    return click.echo(click.style(text, fg, bg))
-
-
-def run_server(host, port, store_uri):
-    server = Server()
-    server.run(host, port, store_uri, log_level=logging_level)
 
 
 def get_ip():
@@ -62,19 +76,81 @@ def get_ip():
     return ip
 
 
-@click.group()
+IP = get_ip()
+
+
+def echo(text, fg="white", bg="black"):
+    return click.echo(click.style(text, fg, bg))
+
+
+def run_server(store_uri, **kwargs):
+    server = Server()
+    server.run(store_uri, log_level=logging_level, **kwargs)
+
+
+def addr_to_kwargs(addr, default="0.0.0.0"):
+    # Too naive. ipv6, path with : ....
+    if ':' not in addr:
+        try:
+            port = int(addr)
+            addr = f"{default}:{addr}"
+        except:
+            if not Path(addr).parent.exists():
+                raise ValueError(f'Path: {Path(addr).parent} not exists')
+            addr = f"unix:{Path(addr).resolve()}"
+    host, port = addr.split(':', 1)
+    if host == "unix":
+        return addr, {'uds': port}
+    else:
+        return addr, {'host': host, 'port': int(port)}
+
+
+def control_nginx(default_config, write_to='/tmp/tmp_hgserver_nginx.conf'):
+    # Maybe we should use some pypi package tp handle nginx config file.
+    def start_nginx(port, socket_urls):
+        if not shutil.which('nginx'):
+            raise RuntimeError(
+                'No nginx detected. Please install nginx with "conda install nginx".')
+
+        for i in range(len(socket_urls)):
+            socket_urls[i] = socket_urls[i].replace('0.0.0.0', 'localhost')
+        servers = "\n".join(f"server {url};" for url in socket_urls) + '\n'
+        config = default_config.replace('{server}', servers)
+        config = config.replace('{port}', str(port))
+        with open(write_to, 'w') as f:
+            f.write(config)
+        stop_nginx()
+        subprocess.check_call(['nginx', '-c', write_to])
+
+    def stop_nginx():
+        try:
+            subprocess.check_call(['nginx', '-c', write_to, '-s', 'stop'])
+            os.remove(write_to)
+        except:
+            pass
+
+    return start_nginx, stop_nginx
+
+
+@cli.group()
 @click.option('--log_level', default="error", type=click.Choice(
     ['critial', 'error', 'warning', 'info', 'debug'], case_sensitive=False))
 def hgserver(log_level):
+    """View results with higlass.
+    Steps:\n
+    1. serve
+    2. view
+    """
     global logging_level
     logging_level = log_level
 
 
 @hgserver.command()
-@click.option('--host', '-h', type=str, default="0.0.0.0")
-@click.option('--port', '-p', type=int, nargs=1, default=6666,
-              help="Port to serve higlass web app")
-def view(host, port):
+@click.option('--addr', '-a', type=str, default="0.0.0.0:6666", nargs=1,
+              help="Example: 0.0.0.0:6666")
+def view(addr):
+    """Start higlass web app."""
+    # Could use
     app = FastAPI()
     app.add_middleware(
         CORSMiddleware,
@@ -88,17 +164,43 @@ def view(host, port):
     def index():
         return open(f'{Path(__file__).parent.resolve()}/ui/index.html').read()
 
-    click.launch(f"http://localhost:{port}/")
-    uvicorn.run(app, host=host, port=port, log_level=logging_level)
+    addr, kwargs = addr_to_kwargs(addr)
+    if kwargs.get('uds') is not None:
+        raise ValueError("Only support for TCP.")
+    click.launch(f"http://localhost:{kwargs['port']}/")
+    uvicorn.run(app, log_level=logging_level, **kwargs)
 
 
 @hgserver.command()
 @click.argument('paths', type=click.Path(exists=True, readable=True), nargs=-1)
-@click.option('--store_uri', type=str, default="sqlite:///test.db",
+@click.option('--port', type=int, default=4321,
+              help="Api sever port served by nginx.")
+@click.option('--store_uri', type=str, default="sqlite:////tmp/test.db",
               help='Database URI. Example: sqlite:///path_to_hold_my_database/tilesets.db')
-@click.option('--host', '-h', type=str, default="0.0.0.0")
-@click.option('--ports', '-p', type=int, multiple=True, default=[5555])
-def serve(paths, store_uri, host, ports):
+@click.option('--nworkers', '-n', type=int, default=0,
+              help="Number of randomly opened backend api workers.")
+@click.option('--addr', '-a', type=str, default=["0.0.0.0:5555"], multiple=True,
+              help="Api server backend address. Eaxmple: 0.0.0.0:5555  unix:/tmp/apiserver.sock")
+def serve(paths, port, store_uri, addr, nworkers):
+    """Start api server served by nginx with multiple backend api workers.
+
+    Example:  hgserver ./ --addr 0.0.0.0:5555 --addr 5556 --nworkers 2.
+
+    This command will open 4 workers with two you explicitly specified and two randomly
+    opened.
+    """
+    # pre check
+    tmp_addrs = list(addr)
+    for i in range(nworkers):
+        tmp_addrs.append(f'unix:/tmp/hgserver_api_{i}.sock')
+    addrs = dict(addr_to_kwargs(addr) for addr in tmp_addrs)
+    paths = list(paths)
+    if not paths:
+        paths = [os.getcwd()]
+    for i in range(len(paths)):
+        paths[i] = Path(paths[i]).resolve()
+
+    # Dsipactch web workers and monitor
     loop = asyncio.get_event_loop()
     for path in paths:
         default_monitor(path)
@@ -106,22 +208,25 @@ def serve(paths, store_uri, host, ports):
         default_monitor.run(store_uri=store_uri),
         loop=loop
     )
-    executor = ProcessPoolExecutor(len(ports))
+    executor = ProcessPoolExecutor(len(addrs))
     server_tasks = []
-    for port in ports:
+    for addr, kwargs in addrs.items():
         server_tasks.append(loop.run_in_executor(
             executor,
-            partial(run_server, host, port, store_uri))
+            partial(run_server, store_uri, **kwargs))
         )
 
+    start_nginx, stop_nginx = control_nginx(__doc__)
+    start_nginx(port, list(addrs.keys()))
     # show message
-    ip = get_ip()
-    echo('Opening api servers:', "green")
-    for port in ports:
-        echo(f"\thttp://{ip}:{port}/api/v1", "blue")
-    echo('Monitering folders::', "green")
+    echo('Monitering folders:', "green")
     for path in paths:
         echo(f"\t{path}", "blue")
+    echo(f"Openning api server: http://{IP}:{port}/api/v1", 'green')
+    echo('Opening sockets:', "green")
+    for addr in addrs:
+        echo(f"\t{addr}", "blue")
+    echo(f"Database: {store_uri}", "green")
 
     try:
         loop.run_forever()
@@ -131,9 +236,8 @@ def serve(paths, store_uri, host, ports):
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 loop.run_until_complete(task)
-
-    echo(f"Stop serving apiserves: {ports}", "yellow")
-    echo(f"Stop monitoring folders: {paths}", "yellow")
+    finally:
+        stop_nginx()
 
 
 @hgserver.group()
@@ -142,12 +246,13 @@ def control():
 
 
 @control.command()
-@click.option('--store_uri', type=str, default="sqlite:///test.db", help='Database URI.')
-@click.option('--host', '-h', type=str, default="0.0.0.0")
-@click.option('--port', '-p', type=int, default=5555)
-def start_apiserver(host, port, store_uri):
+@click.option('--store_uri', type=str, default="sqlite:////tmp/test.db", help='Database URI.')
+@click.option('--addr', '-a', type=str, default="0.0.0.0:5555", nargs=1,
+              help="Eaxmple: 0.0.0.0:5555  unix:/tmp/apiserver.sock")
+def start_apiserver(store_uri, addr):
     server = Server()
-    server.run(host, port, store_uri)
+    addr, kwargs = addr_to_kwargs(addr)
+    server.run(store_uri, **kwargs)
 
 
 @control.command()

@@ -30,7 +30,7 @@ def create_app(db):
 
     # **************************************db dependant operation********************************#
     async def fetch_tilesets(**kwargs):
-        tilesets = await db.items(**kwargs)
+        tilesets = await db.query(**kwargs)
         uuids_remove = []
         for uuid in list(tilesets.keys()):
             if not Path(tilesets[uuid]['datafile']).exists():
@@ -101,7 +101,7 @@ class Server(object):
         self.db = tileset_db
         self.app = create_app(self.db)
 
-    def run(self, host="0.0.0.0", port=5555, store_uri=None, **kwargs):
+    def run(self, store_uri=None, **kwargs):
         if store_uri is not None:
             self.db.store_uri = store_uri
-        uvicorn.run(self.app, host=host, port=port, **kwargs)
+        uvicorn.run(self.app, **kwargs)

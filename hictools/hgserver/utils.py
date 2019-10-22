@@ -186,8 +186,7 @@ class TileSetDB(object):
         if self.db is not None and self.db.is_connected:
             await self.db.disconnect()
 
-    # TODO handling ordered by
-    async def items(self, query=None, **kwargs):
+    async def query(self, query=None, **kwargs):
         if query is None:
             query = select([self.table.c.uuid, self.table.c.tileset])
         for key, value in kwargs.items():
@@ -203,6 +202,11 @@ class TileSetDB(object):
                     getattr(self.table.c, key) == value)
         return {uuid: tileset
                 async for uuid, tileset in self.db.iterate(query)}
+
+    # TODO handling ordered by
+
+    async def items(self, query=None, **kwargs):
+        return (await self.query(query, **kwargs)).items()
 
     async def update(self, tilesets):
         wrapped_tilesets = []

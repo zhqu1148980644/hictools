@@ -24,8 +24,8 @@ class TilesetsMonitor(FileMonitor):
         # Do nothing when the same file added(or restarted the program)
         if event.type == self.added:
             for uuid, tileset in await self.tilesets.items(datafile=path):
-                if (tileset['datafile'] == path
-                        and TileSet.hash(path) == tileset['_hash']):
+                path_equal = tileset['datafile'] == path
+                if path_equal and TileSet.hash(path) == tileset['_hash']:
                     return False
 
         # delete all recorded file with the same datafile prefix(except this modified file)
