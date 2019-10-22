@@ -8,15 +8,13 @@ dependencies:
     - pip
     - pbgzip
     - lz4-c
-    - bwa =0.7.17
+    - bwa = 0.7.17
     - samtools
     - sra-tools
     - aspera-cli
     - pairix
     - fastqc
     - parallel-fastq-dump   
-    - pairtools
-    - cooler
     - pip:
         - multiqc
         - decorator >= 4.1.0

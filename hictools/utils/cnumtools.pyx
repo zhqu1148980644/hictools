@@ -16,7 +16,7 @@ from libc.stdlib cimport malloc, free
 np.import_array()
 
 
-cdef extern from "./_tools.c" nogil:
+cdef extern from "tools.cpp" nogil:
     cdef struct LineIterator:
         int max_dim
         int max_coor[20]
@@ -194,7 +194,7 @@ def convolve():
     pass
 
 
-def _apply_along_diags(func,
+def apply_along_diags(func,
                        np.ndarray mat,
                        tuple offsets,
                        filter_fn):

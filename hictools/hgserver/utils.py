@@ -158,7 +158,7 @@ class TileSetDB(object):
                for column in table.columns.keys()
                if column != 'tileset']
 
-    def __init__(self, store_uri="sqlite:///test.db"):
+    def __init__(self, store_uri="sqlite:////tmp/test.db"):
         self.store_uri = store_uri
         self.db = None
 
