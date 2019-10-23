@@ -1,7 +1,7 @@
 #!/usr/bin/env nextflow
 if (!params.get('raw_reads', "")) {
     def templateString = params.config_template
-    def template = file('config_tempalte.yml')
+    def template = file('config_template.yml')
     template.write(templateString)
     exit 0, """Please specify your configuration file. e.g
                > nextflow run zhqu1148980644/hictools -params-file your_config.yml -resume  

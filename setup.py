@@ -11,6 +11,7 @@ from shutil import rmtree
 
 from Cython.Build import cythonize
 from setuptools import find_packages, setup, Command, Extension
+import numpy as np
 
 # Package meta-data.
 NAME = 'hictools'
@@ -95,7 +96,8 @@ def get_install_requires():
 # from https://stackoverflow.com/questions/31043774/customize-location-of-so-file-generated-by-cython
 ext_modules = [
     Extension("hictools.utils._numtools",
-              ['hictools/utils/_numtools.pyx'], )
+              ['hictools/utils/_numtools.pyx'],
+              include_dirs=[np.get_include()])
 ]
 
 # Where the magic happens:
@@ -113,7 +115,7 @@ setup(
     ext_modules=cythonize(ext_modules),
     # If your package is a single module, use this instead of 'packages':
     # py_modules=['mypackage'],
-    install_requires=get_install_requires(),
+    # install_requires=get_install_requires(),
     entry_points='''
         [console_scripts]
         hictools=hictools.cli:cli
