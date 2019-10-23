@@ -3,8 +3,8 @@ import numbers
 from typing import Union, Iterable, Callable, Generator
 
 import numpy as np
-from hictools.utils._numtools import _apply_along_diags
-from hictools.utils._numtools import convolve1d as correlate1d
+from .cnumtools import apply_along_diags as _apply_along_diags
+from .cnumtools import convolve1d as correlate1d
 from scipy import sparse
 from scipy.ndimage import _ni_support
 from scipy.ndimage.filters import _gaussian_kernel1d
