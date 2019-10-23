@@ -1,4 +1,5 @@
 """
+user nobody nogroup;
 worker_processes auto;
 pid var/run/nginx.pid;
 events {
@@ -146,11 +147,11 @@ def hgserver(log_level):
 
 
 @hgserver.command()
-@click.argument('addr', type=str, default="0.0.0.0:6666", nargs=1)
+@click.argument('addr', type=str, default="0.0.0.0:4567", nargs=1)
 def view(addr):
     """Start higlass web app.
 
-    Example: view 6666
+    Example: view 4567
     """
     # Could use
     app = FastAPI()
@@ -207,7 +208,7 @@ def serve(paths, port, store_uri, addr, num_worker):
     try:
         start_nginx(port, list(addrs.keys()))
     except RuntimeError as e:
-        print(r)
+        print(e)
         return
 
     # Dsipactch web workers and monitor
