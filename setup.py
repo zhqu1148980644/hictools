@@ -20,7 +20,7 @@ URL = 'https://github.com/zhqu1148980644/hictools'
 EMAIL = 'zhongquan789@gmail.com'
 AUTHOR = 'BAKEZQ'
 REQUIRES_PYTHON = '>=3.6.0'
-VERSION = '0.0.2'
+VERSION = '0.0.3'
 
 # The rest you shouldn't have to touch too much :)
 # ------------------------------------------------
@@ -95,8 +95,8 @@ def get_install_requires():
 
 # from https://stackoverflow.com/questions/31043774/customize-location-of-so-file-generated-by-cython
 ext_modules = [
-    Extension("hictools.utils._numtools",
-              ['hictools/utils/_numtools.pyx'],
+    Extension("hictools.utils.cnumtools",
+              ['hictools/utils/cnumtools.pyx'],
               include_dirs=[np.get_include()])
 ]
 
@@ -122,6 +122,7 @@ setup(
     ''',
     # extras_require=EXTRAS,
     include_package_data=True,
+    zip_safe=False,
     license='MIT',
     classifiers=[
         # Trove classifiers

@@ -455,5 +455,8 @@ def decomposition(cool, output, balance, method,
 
 from .hgserver.cli import hgserver
 
+cli.add_command(hgserver)
+
+
 if __name__ == "__main__":
     cli()

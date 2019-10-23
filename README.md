@@ -18,12 +18,8 @@ Currently, hictools is mainly composed of 3 parts:
 # Installation
 
 ```bash
-pip install hictools
-conda install -c bioconda nextflow
-# dev
-pip install poetry --develop=DEVELOP
 git clone https://github.com/zhqu1148980644/hictools.git
-cd hictools && poetry install
+cd hictools && conda env create -f environment.yml
 ```
 
 

@@ -16,6 +16,7 @@ dependencies:
     - fastqc
     - parallel-fastq-dump   
     - pairtools
+    - nextflow
     - nginx
     - cooler >= 0.8.6
     - pysam

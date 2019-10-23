@@ -55,7 +55,6 @@ from fastapi import FastAPI
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import HTMLResponse
 
-from ..cli import cli
 from .server import Server
 from .store import default_monitor
 
@@ -133,7 +132,7 @@ def control_nginx(default_config, write_to='/tmp/tmp_hgserver_nginx.conf'):
     return start_nginx, stop_nginx
 
 
-@cli.group()
+@click.group()
 @click.option('--log_level', default="error", type=click.Choice(
     ['critial', 'error', 'warning', 'info', 'debug'], case_sensitive=False))
 def hgserver(log_level):
