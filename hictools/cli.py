@@ -8,6 +8,7 @@ from functools import partial
 import click
 import cooler
 import numpy as np
+import pandas as pd
 
 from . import config
 from .api import ChromMatrix as _ChromMatrix
@@ -24,16 +25,17 @@ from .peaks import (
 from .utils.utils import (
     CPU_CORE,
     RayWrap,
-    get_logger
+    get_logger,
+    paste_doc,
 )
 
 click.option = partial(click.option, show_default=True)
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
 
 
-def fetch_chrom_dict(cool):
+def fetch_chrom_dict(cool, **kwargs):
     ray = RayWrap()
-    ChromMatrix = ray.remote(_ChromMatrix)
+    ChromMatrix = ray.remote(_ChromMatrix, **kwargs)
     log = get_logger()
 
     co = cooler.Cooler(cool)
@@ -42,7 +44,7 @@ def fetch_chrom_dict(cool):
     chrom_dict = OrderedDict()
     for chrom in co.chromnames:
         weight = np.array(co.bins().fetch(chrom)['weight'])
-        badbin_ratio = np.isnan(weight) / weight.size
+        badbin_ratio = weight[np.isnan(weight)].shape[0] / weight.size
         if badbin_ratio > 0.5:
             log.warning(
                 f"Skipped chromosome: {chrom} due to high percentage of bad regions.")
@@ -418,7 +420,6 @@ def decomposition(cool, output, balance, method,
     """Compute A/B compartment from a .cool file based on decomposition of intra-interaction matrix."""
     log = get_logger()
     log.info("Call compartments")
-    log.debug(locals())
 
     ray = RayWrap(num_cpus=nproc)
     co, records, chrom_dict = fetch_chrom_dict(cool)
@@ -433,7 +434,6 @@ def decomposition(cool, output, balance, method,
             full=True,
             ignore_diags=ignore_diags
         )
-        log.debug(compartment_dict[key])
     coms = np.hstack(
         [ray.get(compartment_dict[key]) for key in chrom_dict.keys()]
     )
@@ -453,6 +453,65 @@ def decomposition(cool, output, balance, method,
         raise IOError("Only support tab or bigwig output format.")
 
 
+# ----------------------------------------reconstruct-------------------------------------
+@cli.group()
+def reconstruct():
+    """Tools for reconstruct 3D polymer model."""
+    pass
+
+
+@paste_doc(_ChromMatrix.mds)
+@reconstruct.command()
+@click.argument(
+    'cool', type=str, nargs=1
+)
+@click.argument(
+    'output', type=click.File('w'), default=sys.stdout
+)
+@click.option(
+    '--learning-rate', type=float, default=10.0
+)
+@click.option(
+    '--batches', type=int, default=10
+)
+@click.option(
+    '--steps', type=int, default=100
+)
+@click.option(
+    '--alpha', type=int, default=100
+)
+@click.option(
+    '--gpu', is_flag=True
+)
+@click.option(
+    '--nproc', '-n', type=int, nargs=1, default=1,
+    help='Number of cores for calculation'
+)
+def mds(cool, output, learning_rate, batches, steps, alpha, gpu, nproc):
+    if gpu:
+        ray = RayWrap(num_gpus=nproc)
+        co, records, chrom_dict = fetch_chrom_dict(cool, num_gpus=1)
+    else:
+        ray = RayWrap(num_cpus=nproc)
+        co, records, chrom_dict = fetch_chrom_dict(cool)
+    log = get_logger()
+
+    dfs = OrderedDict()
+    for key, chrom in chrom_dict.items():
+        dfs[key] = chrom.mds.remote(
+            learning_rate,
+            batches,
+            steps,
+            alpha,
+            gpu,
+        )
+    dfs = [ray.get(id_) for _, id_ in dfs.items()]
+    df = pd.concat(dfs, axis=0)
+    df = pd.concat([records, df], axis=1)
+    df.to_csv(output, sep='\t', header=True,
+              index=False, na_rep="nan")
+
+# ----------------------------------------hgserver-------------------------------------
 from .hgserver.cli import hgserver
 
 cli.add_command(hgserver)

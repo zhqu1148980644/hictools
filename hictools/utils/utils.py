@@ -1,4 +1,5 @@
 """Utils for other modules."""
+import re
 import functools
 import inspect
 import logging
@@ -7,7 +8,7 @@ import warnings
 from collections import UserDict
 from contextlib import redirect_stderr
 from functools import partial, wraps
-from typing import Callable
+import typing as T
 
 import numpy as np
 
@@ -231,6 +232,7 @@ class NodupsDict(UserDict):
 
 class multi_methods(object):
     # TODO Add support for descriptor.G
+    # How to compitable with ray?
     """Dispatch multi methods through attributes fetching"""
 
     def __new__(cls, func=None, **kwargs):
@@ -324,10 +326,10 @@ class RayWrap(object):
                     with redirect_stderr(f):
                         self.ray.init(*args, **kwargs)
 
-    def remote(self, obj):
+    def remote(self, obj, **kwargs):
         """Entry point."""
         if self.enable_ray:
-            return self.ray.remote(obj)
+            return self.ray.remote(**kwargs)(obj)
         else:
             if inspect.isclass(obj):
                 return self._mimic_actor(obj)
@@ -350,13 +352,13 @@ class RayWrap(object):
                 return obj
 
         for name, attr in inspect.getmembers(_Actor):
-            if not inspect.isfunction(attr) or name.startswith('__'):
+            if not inspect.isfunction(attr) or name.startswith('_'):
                 continue
             setattr(_Actor, name, MethodWithRemote(attr))
 
         return _Actor
 
-    def _mimic_func(self, obj: Callable):
+    def _mimic_func(self, obj: T.Callable):
         """Mimic remote function."""
         log = get_logger()
 
@@ -405,60 +407,101 @@ class MethodWithRemote(object):
         return id_
 
     def __call__(self, *args, **kwargs):
-        msg = "Actor methods cannot be called directly." + \
+        msg = "Actor methods cannot be called directly. " + \
               f"Instead of running 'object.{self.mth.__name__}()', " + \
               f"try 'object.{self.mth.__name__}.remote()'."
         raise Exception(msg)
 
 
 def get_logger(name: str = None) -> logging.Logger:
-    """
+    """Get a logging.Logger object.
     :param name: the name of the Logger object, if not set will
     set a default name according to it's caller.
     """
     from inspect import currentframe, getframeinfo
-
-    def get_caller():
-        """
-        Get caller function of the `get_logger`.
-        reference: https://stackoverflow.com/a/4493322/8500469
-        """
-        cal_f = currentframe().f_back.f_back
-        func_name = getframeinfo(cal_f)[2]
-        outer_f = cal_f.f_back
-        func = outer_f.f_locals.get(
-            func_name,
-            outer_f.f_globals.get(func_name))
-        # call from click command
-        if func is None:
-            func = cal_f.f_globals.get(func_name)
-        # call from method
-        if (func is None) and ('self' in outer_f.f_locals):
-            try:
-                func = getattr(outer_f.f_locals.get('self'), func_name)
-            except AttributeError:
-                pass
-        return func
+    from os.path import basename, splitext
 
     # set a default name to logger
     if name is None:
-        caller = get_caller()
-        assert caller is not None, "Caller not Found."
-        import click
-        # click command
-        if isinstance(caller, click.core.Command):
-            name = 'CLI.' + caller.name
-        else:  # function & method
-            name = caller.__module__ + '.'
-            if '__wrapped__' in caller.__dict__:
-                cname = caller.__wrapped__.__qualname__
-            else:
-                cname = caller.__qualname__
-            name += cname
+        call_frame = currentframe().f_back
+        file_ = splitext(basename(call_frame.f_code.co_filename))[0]
+        name_ = call_frame.f_code.co_name
+        name  = f"{file_}:{name_}" if name != '<module>' else file_
 
     log = logging.getLogger(name)
 
     return log
+
+
+import click
+
+
+def parse_docstring(doc:str) -> T.Iterable[T.Tuple[str, str, str, str]]:
+    """Parsing sphinx style doctring.
+
+    sphinx docstring format example:
+
+        :param steps: int. Number of steps in each batch.
+         ----- -----  ---  ------------------------------
+         kind  name   tp   desc
+
+    """
+    kind = None
+    for line in doc.split("\n"):
+        line = line.strip()
+        #import ipdb; ipdb.set_trace()
+        m = re.match(":(.+) (.*?): (.+)\. (.*)$", line) or \
+            re.match(":(.+) ?(.*?): (.+)\.(.*)$",  line)
+        if m:
+            if kind is not None:
+                yield (kind, name, tp, desc)
+            kind, name, tp, desc = m.groups()
+        else:
+            if kind == 'param':
+                desc += " " + line
+    yield (kind, name, tp, desc)
+
+
+def paste_doc(source:T.Union[str, T.Callable]):
+    """Copy docstring or Click command help,
+    avoiding document one thing many times.
+
+    For example, copy `api_func1`'s doc to command `cli_func1`:
+
+        @copy_doc(api_func1)
+        @click.command()
+        @click.option("--arg1")
+        def cli_func1(arg1):
+            ...
+
+    """
+    if isinstance(source, str):
+        doc = source
+    else:
+        doc = source.__doc__
+    params = filter(lambda i: i[0] == 'param', parse_docstring(doc))
+    params = {name: desc for (kind, name, tp, desc) in params}
+
+    process_opt = lambda opt: opt.lstrip('-').replace('-', '_')
+    def in_params(arg):
+        for opt in arg.opts:
+            opt = process_opt(opt)
+            if opt in params:
+                return params[opt]
+        return None
+
+    def decorate(target:T.Union[T.Callable, click.Command]):
+        if isinstance(target, click.Command):
+            # copy doc string to argument's help
+            for arg in target.params:
+                if not isinstance(arg, click.Option): continue
+                desc = in_params(arg)
+                if desc and (not arg.help):
+                    arg.help = desc
+            return target
+        else:  # copy docstring to another function
+            return NotImplemented
+    return decorate
 
 
 if __name__ == "__main__":

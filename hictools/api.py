@@ -8,6 +8,7 @@ import pandas as pd
 from cooler.core import CSRReader
 from cooler.util import open_hdf5
 from scipy import sparse
+from scipy.linalg import toeplitz
 
 from .compartment import (
     corr_sorter,
@@ -551,6 +552,35 @@ class ChromMatrix(object):
     @lru_cache(maxsize=2)
     def _rw_tad(self):
         return NotImplemented
+
+    @multi_methods
+    def reconstruct(self):
+        """Reconstruct 3D polymer model."""
+        pass
+
+#    @reconstruct  # multi_method not compatible with ray
+    def mds(self,
+            learning_rate:float=10.0,
+            batches:int=10,
+            steps:int=100,
+            alpha:float=1.0,
+            gpu:bool=False) -> pd.DataFrame:
+        """Reconstruct model using MDS method.
+
+        :param learning_rate: float. Learning rate in each optimization step.
+        :param batches: int. Number of batches of optimization.
+        :param steps: int. Number of steps in each batch.
+        :param alpha: float. Constant for control the relationship between interaction frequence and distance.
+        :param gpu: bool. Computing using GPU or not, if True,
+        pytorch should be installed with GPU(cuda) support.
+        :return: pd.DataFrame.
+        """
+        from .reconstruct import MetricMDS
+        length = self.cool.chromsizes[self.chrom]
+        mat = self.observed(balance=True, sparse=False, copy=False)
+        model = MetricMDS(mat, alpha=alpha, gpu=gpu)
+        model.train(batches, steps, lr=learning_rate)
+        return model.get_positions(self.chrom, 0, length, mask=self.mask)
 
 
 if __name__ == "__main__":

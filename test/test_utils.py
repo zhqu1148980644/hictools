@@ -101,6 +101,16 @@ class TestRayWrap(object):
         assert ray.get(a.mth1.remote(1)) == 1
 
 
+def test_get_logger():
+    from hictools.utils.utils import get_logger
+    l1 = get_logger("logger1")
+    assert l1.name == 'logger1'
+    def a():
+        return get_logger()
+    l2 = a()
+    assert l2.name == 'test_utils:a'
+
+
 class TestNumTools(object):
 
     def test_convolve1d(self, load_pyx):

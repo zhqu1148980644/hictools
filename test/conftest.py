@@ -23,18 +23,17 @@ def reso_uri(reso=10000):
 @pytest.fixture(scope='module')
 def load_pyx():
     import os
-    import sys
     import subprocess
-    _stderr = sys.stderr
-    _stdout = sys.stdout
-    sys.stderr = open(os.devnull, 'w')
-    sys.stdout = open(os.devnull, 'w')
+    import numpy as np
     back_up = os.getcwd()
     os.chdir('../')
-    subprocess.check_call("cythonize -q -f -b -i **/*.pyx", shell=True)
+    np_inc = np.get_include()
+    env = os.environ.copy()
+    env.update({ "C_INCLUDE_PATH": np_inc, "CPLUS_INCLUDE_PATH": np_inc })
+    p = subprocess.Popen("cythonize -q -f -b -i **/*.pyx",
+            shell=True, env=env, stdout=-1, stderr=-1)
+    p.wait()
     os.chdir(back_up)
-    sys.stderr = _stderr
-    sys.stdout = _stdout
 
 
 @pytest.fixture(scope='module')
