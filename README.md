@@ -75,19 +75,19 @@ Files added into this folder will be automatically recorded and converted using 
 e.g. `.mcool` `.bam` `.bigwig` `.bed` ....
 
 ```bash
-hictools hgserver serve ./work --num_worker 5
+hictools hgserver serve --paths ./ --port 7777 --workers 10
 >>
 Monitering folders:
         /store/home/user/path_you_run_pipeline/work
-Openning api server: http://218.199.68.184:4321/api/v1
+Openning api server: http://218.199.68.184:7777/api/v1
 ```
 
 - ##### Start higlass web app and visit in browser
 
 ```bash
-hictools hgserver view
+hictools hgserver view --api_port 7777 --port 8888
 >>
-Go visit http://199.455.554.1:4567 in browser.
+Go visit http://199.455.554.1:8888 in browser.
 ```
 
 ***

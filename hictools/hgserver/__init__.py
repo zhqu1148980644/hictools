@@ -9,14 +9,10 @@ apiserver:
     get:
         Fetch tileset info from tilesets_store
         Remove tileset if datafile doesn't exists
-        Call decent fucntions to get tiles, tileset_infos
+        Call decent functions to get tiles, tileset_infos
     post: Store new tileset in database.
 
             server:                   store:
-            apiserver1
-nginx <-->  apiserver2    <------>    (tilesets_store  <------->  TileSetMonitor)
-  |         apiserver3
-  |         ...
-  |
+            apiserver2    <------>    (tilesets_store  <------->  TileSetMonitor)
 client: browser
 """
