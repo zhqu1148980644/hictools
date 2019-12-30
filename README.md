@@ -15,7 +15,7 @@ Currently, hictools is mainly composed of 3 parts:
 
 
 ```bash
-conda install cooler pybigwig nginx nextflow
+conda install cooler pybigwig nextflow
 git clone https://github.com/zhqu1148980644/hictools.git
 cd hictools && python setup.py install
 ```
