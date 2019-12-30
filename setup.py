@@ -115,7 +115,7 @@ setup(
     ext_modules=cythonize(ext_modules),
     # If your package is a single module, use this instead of 'packages':
     # py_modules=['mypackage'],
-    # install_requires=get_install_requires(),
+    install_requires=get_install_requires(),
     entry_points='''
         [console_scripts]
         hictools=hictools.cli:cli
