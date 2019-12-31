@@ -99,7 +99,8 @@ def serve(ctx, store_uri, host, port, paths):
     uvicorn.main.parse_args(ctx, args=['TMP'] + ctx.args)
     kwargs = ctx.params.copy()
     for key in ('store_uri', 'paths', 'app', 'no_access_log'):
-        del kwargs[key]
+        if key in kwargs:
+            del kwargs[key]
     kwargs.update({
         'host': host,
         'port': port,
