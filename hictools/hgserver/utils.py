@@ -9,7 +9,6 @@ from hashlib import blake2b
 from pathlib import Path
 
 import clodius.tiles.bam as bam_tiles
-import clodius.tiles.bigwig as bigwig_tiles
 import clodius.tiles.cooler as cooler_tiles
 import sqlalchemy
 from databases import Database
@@ -293,6 +292,7 @@ class TileSet(object):
         elif filetype == "cooler":
             info = cooler_tiles.tileset_info(tileset_dict['datafile'])
         elif filetype == "bigwig":
+            import clodius.tiles.bigwig as bigwig_tiles
             info = bigwig_tiles.tileset_info(tileset_dict['datafile'])
         else:
             info = {'error': f"Unknown tileset filetype: {filetype}"}
@@ -313,6 +313,7 @@ class TileSet(object):
         elif filetype == "cooler":
             data = cooler_tiles.tiles(tileset_dict['datafile'], tids)
         elif filetype == "bigwig":
+            import clodius.tiles.bigwig as bigwig_tiles
             data = bigwig_tiles.tiles(tileset_dict['datafile'], tids)
         else:
             data = {'error': f"Unknown tileset filetype: {filetype}"}

@@ -1,14 +1,19 @@
 #!/usr/bin/env nextflow
-if (!params.get('raw_reads', "")) {
+if (!file('config_template.yml').exists()) {
     def templateString = params.config_template
     def template = file('config_template.yml')
     template.write(templateString)
-    exit 0, """Please specify your configuration file. e.g
-               > nextflow run zhqu1148980644/hictools -params-file your_config.yml -resume  
-               You can find a configuration template in current directory.             
+    exit 0, """Please fill and specify your configuration file. e.g
+               > nextflow run zhqu1148980644/hictools -params-file config_template.yml -resume
+               You can find a configuration template in current directory.
             """
+} else if (!params){
+    exit 0, """Run with: nextflow run zhqu1148980644/hictools -params-file config_template.yml -resume"""
 }
 
+if (!params.get('raw_reads', "")) {
+    exit 0, """Please specify samples in config_tempate.yml!"""
+}
 
 /*************************************parameters*********************************/ 
 raw_reads = params.raw_reads

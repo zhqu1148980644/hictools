@@ -13,15 +13,6 @@ import pandas as pd
 from . import config
 from .api import ChromMatrix as _ChromMatrix
 from .compartment import corr_sorter
-from .io import records2bigwigs
-from .peaks import (
-    hiccups,
-    fetch_kernels,
-    expected_fetcher,
-    observed_fetcher,
-    factors_fetcher,
-    chunks_gen
-)
 from .utils.utils import (
     CPU_CORE,
     RayWrap,
@@ -149,6 +140,13 @@ def Hiccups(cool, output,
             chunk_size, fdrs, sigs, fold_changes,
             ignore_single_gap, bin_index, nproc):
     """Call peaks by using hiccups method."""
+
+    from .utils.utils import (
+        CPU_CORE,
+        RayWrap,
+        get_logger,
+        paste_doc,
+    )
     ray = RayWrap(num_cpus=nproc)
     co, _, chrom_dict = fetch_chrom_dict(cool)
 
@@ -448,6 +446,7 @@ def decomposition(cool, output, balance, method,
         records.to_csv(output, sep='\t', header=True,
                        index=False, na_rep="nan")
     elif out_fmt == 'bigwig':
+        from .io import records2bigwigs
         records2bigwigs(records, output.name)
     else:
         raise IOError("Only support tab or bigwig output format.")

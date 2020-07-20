@@ -450,8 +450,8 @@ def parse_docstring(doc:str) -> T.Iterable[T.Tuple[str, str, str, str]]:
     for line in doc.split("\n"):
         line = line.strip()
         #import ipdb; ipdb.set_trace()
-        m = re.match(":(.+) (.*?): (.+)\. (.*)$", line) or \
-            re.match(":(.+) ?(.*?): (.+)\.(.*)$",  line)
+        m = re.match(r":(.+) (.*?): (.+)\. (.*)$", line) or \
+            re.match(r":(.+) ?(.*?): (.+)\.(.*)$",  line)
         if m:
             if kind is not None:
                 yield (kind, name, tp, desc)
