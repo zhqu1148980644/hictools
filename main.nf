@@ -7,12 +7,8 @@ if (!file('config_template.yml').exists()) {
                > nextflow run zhqu1148980644/hictools -params-file config_template.yml -resume
                You can find a configuration template in current directory.
             """
-} else if (!params){
+} else if (!params.get('raw_reads', '')) {
     exit 0, """Run with: nextflow run zhqu1148980644/hictools -params-file config_template.yml -resume"""
-}
-
-if (!params.get('raw_reads', "")) {
-    exit 0, """Please specify samples in config_tempate.yml!"""
 }
 
 /*************************************parameters*********************************/ 
@@ -22,7 +18,7 @@ Boolean do_fastqc = params.fastqc
 def indexs = file(params.index + "*", checkIfExists: true)
 if (!params.index.length() || !indexs.size())
     error "BWA index cant not be found: ${params.index}"
-def index_file = indexs[0].toRealPath()
+def index_file = indexs[1].toRealPath()
 
 // map parameters
 def assembly = params.map.assembly
@@ -50,7 +46,7 @@ Channel
     .set {index}
 Channel
     .value(file(params.chromsize, checkIfExists: true))
-    .set {chromsize}
+    .set {chromsize_candidate}
 
 if (genome)
     Channel.value(file(genome, checkIfExists: true)).set {fasta}
@@ -149,6 +145,46 @@ Boolean fileExists(file)
 }
 
 /***********************************************digest******************************************/ 
+
+process get_chromsomes {
+    input:
+    file(fasta) from fasta
+
+    output:
+    stdout into chromesomes
+    
+    script:
+    """
+    cat ${fasta} | grep ">"
+    """
+}
+
+process get_union_chromsize {
+    tag {"Check if chromsize file is valid"}
+    publishDir path: {"results/other/chromsizes"}
+    
+    input:
+    file(chromsize) from chromsize_candidate    
+    stdin from chromesomes
+
+    output:
+    file("${assembly}.chromsizes") into chromsize
+    
+"""
+#!/usr/bin/env python
+import sys
+chroms = set(chrom.lstrip(">").rstrip("\\n") for chrom in sys.stdin)
+cnt = 0
+with open("${chromsize}") as f, open("${assembly}.chromsizes", 'w') as w:
+    for line in f:
+        chname, chsize, *_ = line.split()
+        if chname in chroms:
+            w.write(line)
+            cnt += 1
+if cnt == 0:
+    raise ValueError("Union chromsomes not found")
+"""
+}
 
 process digest {
     tag {"Digest ${genome.getSimpleName()} with ${enzyme}."}
@@ -677,9 +713,8 @@ process pair_to_cool {
     tags = values(key)[-1]
     cool = "${tags}_${(min_res / 1000) as int}k.cool"
     """
-    cooler cload pairs -c1 2 -p1 3 -c2 4 -p2 5 \
-        --assembly ${assembly} ${chromsize}:${min_res} \
-        ${pair} ${cool} 
+    zcat ${pair} | cooler cload pairs -c1 2 -p1 3 -c2 4 -p2 5 \
+        --assembly ${assembly} ${chromsize}:${min_res} - ${cool} 
     """
 }
 minres_cools
@@ -726,10 +761,10 @@ process mcool_to_features {
     cool_10k = "${mcool}::/resolutions/10000"
     (sample, tags) = values(key)
     """
-    hictools compartment ${cool_100k} ${sample}_100k_compartments.bed
+    hictools compartments decomposition ${cool_100k} ${sample}_100k_compartments.bed
     hictools expected ${cool_10k} ${sample}_10k_expected.bed
-    hictools peaks call-by-hiccups ${cool_10k} ${sample}_10k_peaks.bed
-    hictools tad di-score ${cool_10k} ${sample}_10k_discore.bed
-    hictools tad insu-score ${cool_10k} ${sample}_10k_insuscore.bed
+    hictools peaks hiccups ${cool_10k} ${sample}_10k_peaks.bed
+    hictools tads di-score ${cool_10k} ${sample}_10k_discore.bed
+    hictools tads insu-score ${cool_10k} ${sample}_10k_insuscore.bed
     """
 }

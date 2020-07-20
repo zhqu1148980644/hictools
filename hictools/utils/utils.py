@@ -329,7 +329,10 @@ class RayWrap(object):
     def remote(self, obj, **kwargs):
         """Entry point."""
         if self.enable_ray:
-            return self.ray.remote(**kwargs)(obj)
+            if kwargs:
+                return self.ray.remote(**kwargs)(obj)
+            else:
+                return self.ray.remote(obj)
         else:
             if inspect.isclass(obj):
                 return self._mimic_actor(obj)

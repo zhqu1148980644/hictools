@@ -1,7 +1,9 @@
 Cython
 Click
+fire
 pytest
 twine
+
 numpy
 scipy
 h5py
@@ -11,18 +13,21 @@ statsmodels
 pomegranate
 scikit-learn
 colorama
+
 ujson
 watchgod
 databases
 fastapi
 uvicorn
 slugid
-ray
-psutil
 aiosqlite
+psutil
 wget
-fire
 
-cooler
-clodius
 pyBigWig
+clodius
+cooler
+
+google-api-python-client
+redis
+ray
