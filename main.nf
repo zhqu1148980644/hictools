@@ -15,8 +15,8 @@ raw_reads = params.raw_reads
 Boolean do_stat = params.stat
 Boolean do_fastqc = params.fastqc
 def indexs = file(params.index + "*", checkIfExists: true)
-if (indexs.size() == 0)
-    error "Index cant not be found: ${params.index}"
+if (!params.index.length() || !indexs.size())
+    error "BWA index cant not be found: ${params.index}"
 def index_file = indexs[0].toRealPath()
 
 // map parameters
