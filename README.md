@@ -68,7 +68,7 @@ hictools hgserver serve --paths ./ --port 7777 --workers 10
 >>
 Monitering folders:
         /store/home/user/path_you_run_pipeline/work
-Openning api server: http://218.199.68.184:7777/api/v1
+Openning api server: http://ip_address:7777/api/v1
 ```
 
 - ##### Start higlass web app and visit in browser
@@ -76,7 +76,7 @@ Openning api server: http://218.199.68.184:7777/api/v1
 ```bash
 hictools hgserver view --api_port 7777 --port 8888
 >>
-Go visit http://199.455.554.1:8888 in browser.
+Go visit http://ip_address:8888 in browser.
 ```
 
 ***
