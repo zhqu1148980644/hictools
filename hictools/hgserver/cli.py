@@ -98,9 +98,6 @@ def view(api_port, host, port):
 def serve(ctx, store_uri, host, port, paths):
     uvicorn.main.parse_args(ctx, args=['TMP'] + ctx.args)
     kwargs = ctx.params.copy()
-    for key in ('store_uri', 'paths', 'app', 'no_access_log'):
-        if key in kwargs:
-            del kwargs[key]
     kwargs.update({
         'host': host,
         'port': port,
@@ -124,7 +121,7 @@ def serve(ctx, store_uri, host, port, paths):
             loop.run_in_executor(executor, partial(
                 run_monitor, store_uri, paths))
         server = Server()
-        server.run(store_uri, **kwargs)
+        server.run(**kwargs)
     except Exception as e:
         echo(str(e), "red")
         echo("\nStoping services .......", "yellow")

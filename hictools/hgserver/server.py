@@ -104,4 +104,7 @@ class Server(object):
     def run(self, store_uri=None, **kwargs):
         if store_uri is not None:
             self.db.store_uri = store_uri
-        uvicorn.run(self.app, **kwargs)
+        kwargs = {k: v for k, v in kwargs.items()
+                    if k in set(uvicorn.Config.__init__.__code__.co_varnames)}
+        kwargs['app'] = self.app
+        uvicorn.run(**kwargs)
