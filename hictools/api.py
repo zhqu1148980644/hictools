@@ -2,43 +2,22 @@
 from functools import partial, lru_cache
 from typing import Union, Tuple, Sequence
 
-import cooler
 import numpy as np
 import pandas as pd
+import cooler
 from cooler.core import CSRReader
 from cooler.util import open_hdf5
 from scipy import sparse
-from scipy.linalg import toeplitz
 
-from .compartment import (
-    corr_sorter,
-    get_pca_compartment,
-    get_eigen_compartment,
-    Expected
-)
-from .peaks import (
-    hiccups,
-    get_chunk_slices,
-    fetch_kernels
-)
-from .tad import (
-    insulation_score,
-    di_score,
-    split_diarray,
-    call_domain,
-    hidden_path
-)
 from .utils.numtools import (
     get_diag,
     fill_diags
 )
 from .utils.utils import (
-    remove_small_gap,
     suppress_warning,
     LazyProperty,
     multi_methods
 )
-
 
 class ChromMatrix(object):
     # TODO support for initializing from file or 2d-matrix.
@@ -251,7 +230,8 @@ class ChromMatrix(object):
         return self.mean(balance=balance)
 
     def expected(self,
-                 balance: bool = True) -> Expected:
+                 balance: bool = True):
+        from .compartment import Expected
         """Calculate expected matrix that pixels in a certain diagonal have the same value."""
         return Expected(self.decay(balance=balance))
 
@@ -343,6 +323,7 @@ class ChromMatrix(object):
         to False.
         :return: np.ndarray.
         """
+        from .tad import insulation_score
 
         score = insulation_score(
             self.observed(
@@ -376,6 +357,7 @@ class ChromMatrix(object):
         :param full: Return non-gap region of output directionality index if full set to False.
         :return: np.ndarray.
         """
+        from .tad import di_score
 
         score = di_score(
             self.observed(
@@ -431,6 +413,11 @@ class ChromMatrix(object):
         and the detection of peaks based on different chromosome will run in parallel.
         :return: pd.Dataframe.
         """
+        from .peaks import (
+            hiccups,
+            get_chunk_slices,
+            fetch_kernels
+        )
 
         def expected_fetcher(key, slices, expected=self.expected(**kwargs)):
             return expected[slices]
@@ -495,7 +482,7 @@ class ChromMatrix(object):
                        ignore_diags: int = 3,
                        fill_value: float = 1.,
                        numvecs: int = 3,
-                       sort_fn: callable = corr_sorter,
+                       sort_fn: callable = None,
                        full: bool = True) -> np.ndarray:
         """Calculate A/B compartments based on decomposition of intra-chromosomal 
         interaction matrix. Currently, two methods are supported for detecting A/B 
@@ -505,6 +492,15 @@ class ChromMatrix(object):
         :return: np.ndarray. Array representing the A/B seperation of compartment.
         Negative value denotes B compartment.
         """
+        from .compartment import (
+            corr_sorter,
+            get_pca_compartment,
+            get_eigen_compartment,
+        )
+
+        if sort_fn is None:
+            sort_fn = corr_sorter
+
 
         if method in ('pca', 'eigen'):
             corr = self.corr(
