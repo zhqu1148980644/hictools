@@ -147,6 +147,16 @@ def Hiccups(cool, output,
         get_logger,
         paste_doc,
     )
+
+    from .peaks import (
+        hiccups,
+        fetch_kernels,
+        expected_fetcher,
+        observed_fetcher,
+        factors_fetcher,
+        chunks_gen
+    )
+
     ray = RayWrap(num_cpus=nproc)
     co, _, chrom_dict = fetch_chrom_dict(cool)
 
