@@ -1,4 +1,5 @@
 """Utils for other modules."""
+import click
 import re
 import functools
 import inspect
@@ -15,6 +16,7 @@ import numpy as np
 from .. import config
 
 CPU_CORE = multiprocessing.cpu_count()
+
 
 def suppress_warning(func=None, warning_msg=RuntimeWarning):
     """Ignore the given type of warning omitted from the function. The default warning is RuntimeWarning."""
@@ -325,17 +327,14 @@ def get_logger(name: str = None) -> logging.Logger:
         call_frame = currentframe().f_back
         file_ = splitext(basename(call_frame.f_code.co_filename))[0]
         name_ = call_frame.f_code.co_name
-        name  = f"{file_}:{name_}" if name != '<module>' else file_
+        name = f"{file_}:{name_}" if name != '<module>' else file_
 
     log = logging.getLogger(name)
 
     return log
 
 
-import click
-
-
-def parse_docstring(doc:str) -> T.Iterable[T.Tuple[str, str, str, str]]:
+def parse_docstring(doc: str) -> T.Iterable[T.Tuple[str, str, str, str]]:
     """Parsing sphinx style doctring.
 
     sphinx docstring format example:
@@ -345,7 +344,7 @@ def parse_docstring(doc:str) -> T.Iterable[T.Tuple[str, str, str, str]]:
          kind  name   tp   desc
 
     """
-    kind = None
+    kind = name = tp = desc = None
     for line in doc.split("\n"):
         line = line.strip()
         #import ipdb; ipdb.set_trace()
@@ -361,7 +360,7 @@ def parse_docstring(doc:str) -> T.Iterable[T.Tuple[str, str, str, str]]:
     yield (kind, name, tp, desc)
 
 
-def paste_doc(source:T.Union[str, T.Callable]):
+def paste_doc(source: T.Union[str, T.Callable]):
     """Copy docstring or Click command help,
     avoiding document one thing many times.
 
@@ -381,7 +380,8 @@ def paste_doc(source:T.Union[str, T.Callable]):
     params = filter(lambda i: i[0] == 'param', parse_docstring(doc))
     params = {name: desc for (kind, name, tp, desc) in params}
 
-    process_opt = lambda opt: opt.lstrip('-').replace('-', '_')
+    def process_opt(opt): return opt.lstrip('-').replace('-', '_')
+
     def in_params(arg):
         for opt in arg.opts:
             opt = process_opt(opt)
@@ -389,11 +389,12 @@ def paste_doc(source:T.Union[str, T.Callable]):
                 return params[opt]
         return None
 
-    def decorate(target:T.Union[T.Callable, click.Command]):
+    def decorate(target: T.Union[T.Callable, click.Command]):
         if isinstance(target, click.Command):
             # copy doc string to argument's help
             for arg in target.params:
-                if not isinstance(arg, click.Option): continue
+                if not isinstance(arg, click.Option):
+                    continue
                 desc = in_params(arg)
                 if desc and (not arg.help):
                     arg.help = desc
