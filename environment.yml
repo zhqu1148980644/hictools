@@ -4,8 +4,6 @@ channels:
     - bioconda
     - hcc
 dependencies:
-    - nginx
-    - nextflow
     - python >= 3.7
     - pip
     - Cython

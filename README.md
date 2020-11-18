@@ -11,19 +11,19 @@ Currently, hictools is mainly composed of 3 parts:
 - A simple yet user friendly `higlass server`.
 
 
-# Installation
+# Install
 
-
-```bash
-conda install nextflow
+```
 git clone https://github.com/zhqu1148980644/hictools.git
-cd hictools && pip install .
+cd hictools && pip install ./
 ```
 
 # Usage
 
 ## Pipeline
 
+
+- ##### **Install** [nextflow](https://www.nextflow.io/)
 - #####  Fill in the config file and run.
 
  Fill in a config file in order to  specify the desired sample files(.fastq) to process.
