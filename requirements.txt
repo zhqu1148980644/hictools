@@ -1,33 +1,27 @@
-Cython
-Click
-fire
-pytest
-twine
-
-numpy
-scipy
-h5py
-pandas
-matplotlib
-statsmodels
-pomegranate
-scikit-learn
+setuptools
 colorama
+Click
 
-ujson
-watchgod
-databases
-fastapi
-uvicorn
-slugid
-aiosqlite
-psutil
-wget
-
-pyBigWig
-clodius
+# api
+scipy
+numpy
+pandas
+sklearn
+statsmodels
+scikit-learn
 cooler
 
-google-api-python-client
-redis
-ray
+# hgserver
+uvloop
+ujson
+watchgod
+SQLAlchemy
+databases
+uvicorn
+fastapi
+starlette
+slugid
+aiosqlite
+clodius
+
+

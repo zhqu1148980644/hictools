@@ -1,24 +1,30 @@
 import os
 import socket
-import shutil
-import asyncio
-import contextlib
-import subprocess
+from typing import Union
 from pathlib import Path
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 
 import click
-import uvicorn
-from fastapi import FastAPI
-from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import HTMLResponse
-
-from .server import Server
-from .store import default_monitor
 
 click.option = partial(click.option, show_default=True)
 logging_level = "error"
+
+
+
+def echo(text, fg="white", bg="black"):
+    return click.echo(click.style(text, fg, bg))
+
+
+def get_open_port():
+    # reference: https://stackoverflow.com/a/2838309/10336496
+    import socket
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.bind(("", 0))
+    s.listen(1)
+    port = s.getsockname()[1]
+    s.close()
+    return port
 
 
 def get_ip():
@@ -26,7 +32,7 @@ def get_ip():
     try:
         s.connect(('1.1.1.1', 1))
         ip = s.getsockname()[0]
-    except:
+    except Exception:
         ip = "127.0.0.1"
     finally:
         s.close()
@@ -34,11 +40,24 @@ def get_ip():
     return ip
 
 
+def fetch_valid_uri(store_uri: str) -> Union[str, None]:
+    from sqlalchemy.engine.url import make_url
+    uri = None
+    try:
+        uri = str(make_url(store_uri))
+    except Exception:
+        pass
+    try:
+        realpath = str(Path(store_uri).expanduser().resolve())
+        if Path(realpath).parent.exists():
+            uri = str(make_url("sqlite:///" + realpath))
+    except Exception:
+        pass
+
+    return uri
+
+
 IP = get_ip()
-
-
-def echo(text, fg="white", bg="black"):
-    return click.echo(click.style(text, fg, bg))
 
 
 @click.group()
@@ -49,7 +68,7 @@ def hgserver(log_level):
 
     Steps:\n
     >> hictools hgserver serve --port 7777 --paths ./\n
-    >> hictools hgserver view --api_port 7777 --port 8888
+    >> hictools hgserver view --api_port 7777
     """
     global logging_level
     logging_level = log_level
@@ -58,12 +77,18 @@ def hgserver(log_level):
 @hgserver.command()
 @click.option('--api_port', type=int, default=0, help="Apiserver port opened by 'hictools hgserver serve'")
 @click.option('--host', type=str, default="0.0.0.0")
-@click.option('--port', type=int, default=8888)
+@click.option('--port', type=int, default=0, help="'--port 0' represents automatically select for an opening port.")
 def view(api_port, host, port):
     """Start higlass web app.
+    Make sure to run 'hictools hgserver serve' subcommand in order to fetch an API_PORT before this step.
 
-    Example: hictools hgserver view --api_port 7777 --port 8888
+    Example: hictools hgserver view --api_port API_PORT
     """
+    import uvicorn
+    from fastapi import FastAPI
+    from starlette.middleware.cors import CORSMiddleware
+    from starlette.responses import HTMLResponse
+
     # Could use
     app = FastAPI()
     app.add_middleware(
@@ -73,6 +98,9 @@ def view(api_port, host, port):
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    if port == 0:
+        port = get_open_port()
 
     @app.get('/', response_class=HTMLResponse)
     def index():
@@ -89,67 +117,116 @@ def view(api_port, host, port):
     ignore_unknown_options=True,
     allow_extra_args=True
 ))
-@click.option('--store_uri', type=str, default="sqlite:////tmp/test.db", help='Database URI.')
-@click.option('--host', type=str, default="0.0.0.0")
-@click.option('--port', type=int, default=7777)
-@click.option('--paths', type=click.Path(exists=True, readable=True), multiple=True,
+@click.option('--store_uri',
+              type=str,
+              default="~/.hictools_hgserver.db",
+              help='Database URI.')
+@click.option('--host',
+              type=str,
+              default="0.0.0.0")
+@click.option('--port',
+              type=int,
+              default=0,
+              help="'--port 0' represents automatically select for an opening port.")
+@click.option('--paths',
+              type=click.Path(exists=True, readable=True),
+              multiple=True,
               help="Path to monitor file changes.")
+@click.option('--workers',
+              type=click.IntRange(min=1),
+              default=10,
+              help="Number of process workers for supplying tilesets.")
 @click.pass_context
-def serve(ctx, store_uri, host, port, paths):
+def serve(ctx, store_uri, host, port, paths, workers):
+    """Monitor folders and serve an api server used for higlass.\n
+        Files added into the monitoring folders would be automatically registered in the api server.
+    """
+    import uvicorn
+    from .server import Server
+
+    # get sqlalchemy engine uri
+    store_uri = fetch_valid_uri(store_uri)
+    if store_uri is None:
+        echo(f"Invalid database uri {store_uri}", "red")
+        return
+
+    # get opening port
+    if port == 0:
+        port = get_open_port()
+
     uvicorn.main.parse_args(ctx, args=['TMP'] + ctx.args)
     kwargs = ctx.params.copy()
     kwargs.update({
+        'store_uri': store_uri,
         'host': host,
         'port': port,
-        'log_level': logging_level
+        'log_level': logging_level,
     })
-    if paths:
-        echo('Monitering folders:', "green")
-        for path in paths:
-            echo(f"\t{path}", "blue")
+    # uvicorn only support for workers and reload for file app
 
-    if kwargs['uds'] is None:
-        echo(f"Openning api server: http://{IP}:{port}/api/v1", 'green')
-    else:
-        echo(f"Openning api server: {kwargs['uds']}", 'green')
-    echo(f"Tilesets Database: {store_uri}", "green")
+    # get valid monitoring paths
+    if not paths:
+        paths = [os.getcwd()]
+    paths = [p for p in paths if Path(p).is_dir() and Path(p).exists()]
 
+    futures = []
     try:
-        loop = asyncio.get_event_loop()
-        if paths:
-            executor = ProcessPoolExecutor(1)
-            loop.run_in_executor(executor, partial(
-                run_monitor, store_uri, paths))
-        server = Server()
-        server.run(**kwargs)
+        with ProcessPoolExecutor(workers + 1) as executor:
+            # run monitor in process
+            fut = executor.submit(partial(run_monitor, store_uri, paths))
+            futures.append(fut)
+
+            # serving
+            for i in range(1, workers + 1):
+                fut = executor.submit(partial(run_server, kwargs))
+                futures.append(fut)
+
+            # echo
+            echo('Monitering folders:', "green")
+            for path in paths:
+                echo(f"\t{Path(path).resolve()}", "blue")
+
+            if kwargs['uds'] is None:
+                echo(f"Openning api server: http://{IP}:{port}/api/v1", 'green')
+            else:
+                echo(f"Openning api server: {kwargs['uds']}", 'green')
+            echo(f"Tilesets Database: {store_uri}", "green")
+            if kwargs['uds'] is None:
+                echo(f"Run 'hictools hgserver view --api_port {port} \
+                       to visualize in your web browser.", "green")
+            # wait to be done
+            for fut in futures:
+                fut.result()
+
+    except KeyboardInterrupt:
+        pass
     except Exception as e:
-        echo(str(e), "red")
+        print(e)
+    finally:
         echo("\nStoping services .......", "yellow")
-        for task in asyncio.Task.all_tasks():
-            task.cancel()
+        for fut in futures:
+            fut.cancel()
+
+
+
+def run_server(kwargs):
+    import uvloop
+    from .server import Server
+    uvloop.install()
+
+    server = Server()
+    server.run(**kwargs)
 
 
 def run_monitor(store_uri, paths):
+    import uvloop
     from .store import default_monitor as monitor
+    uvloop.install()
+
     for path in paths:
         monitor(path)
     loop = asyncio.get_event_loop()
     loop.run_until_complete(monitor.run(store_uri))
-
-
-@hgserver.command()
-@click.argument('paths', type=click.Path(exists=True, readable=True), nargs=-1)
-@click.option('--store_uri', type=str, default="sqlite:////tmp/test.db", help='Database URI.')
-def monitor(paths, store_uri):
-    """
-    Monitor folders to automatically supply tilesets.
-    """
-    echo('Monitering folders:', "green")
-    for path in paths:
-        default_monitor(path)
-        echo(f"\t{path}", "blue")
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(default_monitor.run(store_uri=store_uri))
 
 
 if __name__ == "__main__":

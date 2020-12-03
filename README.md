@@ -13,6 +13,13 @@ Currently, hictools is mainly composed of 3 parts:
 
 # Install
 
+
+```
+pip install hictoools
+
+```
+or
+
 ```
 git clone https://github.com/zhqu1148980644/hictools.git
 cd hictools && pip install ./
@@ -64,40 +71,30 @@ Files added into this folder will be automatically recorded and converted using 
 e.g. `.mcool` `.bam` `.bigwig` `.bed` ....
 
 ```bash
-hictools hgserver serve --paths ./ --port 7777 --workers 10
+hictools hgserver serve --workers 10 --paths ./
 >>
-Monitering folders:
-        /store/home/user/path_you_run_pipeline/work
-Openning api server: http://ip_address:7777/api/v1
+Openning api server: http://x.x.x.x:48005/api/v1
+Tilesets Database: sqlite:////store/qzhong/.hictools_hgserver.db
+Run 'hictools hgserver view --api_port 48005 to visualize in your web browser.
 ```
 
 - ##### Start higlass web app and visit in browser
 
 ```bash
-hictools hgserver view --api_port 7777 --port 8888
+hictools hgserver view --api_port 48405
 >>
-Go visit http://ip_address:8888 in browser.
+Go visit http://x.x.x.x:8888 in browser.
 ```
 
 ***
 
 ## CLI
 
-```bash
-hictools
->>
-  compartments  Tools for topological associated domain analysis.
-  expected      Compute expected values from a .cool file.
-  hgserver      View results with higlass.
-  peaks         Call peaks(loops) by using hiccups or cloops methods.
-  tads          Tools for topological associated domain analysis.
-```
-
 ***
 
 ## API
 
-Check source code `api.py` for details.
+Check source codes for details.
 
 ---
 

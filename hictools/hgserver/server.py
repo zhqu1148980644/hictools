@@ -7,7 +7,7 @@ from fastapi import FastAPI, Query
 from starlette.middleware.cors import CORSMiddleware
 from starlette.responses import UJSONResponse
 
-from .utils import TileSetDB, TileSet
+from hictools.hgserver.store import TileSetDB, TileSet
 
 
 def create_app(db):
@@ -38,6 +38,7 @@ def create_app(db):
                 del tilesets[uuid]
         await db.remove(uuids_remove)
         return tilesets
+
     # *******************************************************************************************#
 
     # handling ordered by through fetch_tilesets
@@ -101,10 +102,19 @@ class Server(object):
         self.db = tileset_db
         self.app = create_app(self.db)
 
-    def run(self, store_uri=None, **kwargs):
+    def run(self, host, port, store_uri=None, **kwargs):
+        import socket
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        s.bind((host, port))
+
         if store_uri is not None:
             self.db.store_uri = store_uri
-        kwargs = {k: v for k, v in kwargs.items()
-                    if k in set(uvicorn.Config.__init__.__code__.co_varnames)}
-        kwargs['app'] = self.app
-        uvicorn.run(**kwargs)
+        remains = set(uvicorn.Config.__init__.__code__.co_varnames)
+        for rmk in ("app", "workers", "fd", "reload"):
+            remains.remove(rmk)
+        kwargs = {k: v for k, v in kwargs.items() if k in remains}
+
+
+        uvicorn.run(app=self.app, fd=s.fileno(), **kwargs)

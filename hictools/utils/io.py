@@ -10,7 +10,7 @@ import h5py
 import numpy as np
 import pandas as pd
 
-from .utils.utils import get_logger
+from .utils import get_logger
 
 
 class auto_open(object):
@@ -58,11 +58,11 @@ class auto_open(object):
         """
 
         text = not (True if (len(mode) == 2 and mode[1] == 'b') else False)
-        with open(file, mode) as file:
+        with open(file, mode) as f:
             if mode[0] == 'w':
-                stdin, stdout = subprocess.PIPE, file
+                stdin, stdout = subprocess.PIPE, f
             elif mode[0] == 'r':
-                stdin, stdout = file, subprocess.PIPE
+                stdin, stdout = f, subprocess.PIPE
             else:
                 raise ValueError('mode only support write and read')
             pipe = subprocess.Popen(
@@ -238,13 +238,12 @@ def fetch_coolinfo(cool: h5py.File, chroms: Iterable) -> Tuple[list, dict]:
     return sub_chroms, chrom_info
 
 
-def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = True):
+def extract_cool(cool_path: str, sub_cool_path: str, chroms: Iterable, intra_only: bool = True):
     """Extract a certain subset data(chromosomes) from a given .cool file.
     For extracting sub regions: see: https://github.com/Nanguage/CoolClip
     """
-    cool = str(cool)
 
-    def open_mcool(filename, mode='r'):
+    def open_mcool(filename, mode='r') -> h5py.File:
         if '::' in filename:
             filename, grp_name = filename.split('::')
             return h5py.File(filename, mode)[grp_name]
@@ -252,15 +251,15 @@ def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = 
             return h5py.File(filename, mode)
 
     log = get_logger('Extract sub_cool.')
-    log.info(f'Extract sub data from {cool}.')
-    cool = open_mcool(cool, mode='r')
+    log.info(f'Extract sub data from {cool_path}.')
+    cool = open_mcool(cool_path, mode='r')
 
     sub_chroms, chrom_info = fetch_coolinfo(cool, chroms)
     if sub_chroms:
         log.warning(f"Chromosomes: {sub_chroms} not find in {cool.name}.")
 
-    if os.path.isfile(sub_cool):
-        sub_cool = open_mcool(sub_cool, mode='a')
+    if os.path.isfile(sub_cool_path):
+        sub_cool = open_mcool(sub_cool_path, mode='a')
         included_chroms = sub_cool.attrs.get('Included chroms', np.empty(0))
         if np.all(included_chroms == list(chrom_info.keys())):
             sub_cool.file.close()
@@ -268,7 +267,7 @@ def extract_cool(cool: str, sub_cool: str, chroms: Iterable, intra_only: bool = 
         else:
             sub_cool.clear()
     else:
-        sub_cool = open_mcool(sub_cool, mode='a')
+        sub_cool = open_mcool(sub_cool_path, mode='a')
 
     # copy groups.
     cool.copy('chroms', sub_cool)

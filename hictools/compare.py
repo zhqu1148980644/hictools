@@ -6,8 +6,9 @@ from typing import Union
 import numpy as np
 from scipy import stats, sparse
 from statsmodels.stats import multitest
+from scipy.ndimage.filters import gaussian_filter
 
-from .utils.numtools import gaussian_filter, apply_along_diags
+from .utils.numtools import apply_along_diags
 
 
 def selfish(mat1: Union[np.ndarray, sparse.spmatrix],
@@ -50,7 +51,7 @@ def selfish(mat1: Union[np.ndarray, sparse.spmatrix],
 
     pvals = np.full(indices[0].size, 1, dtype=np.float32)
     radius = np.full_like(pvals)
-    pre_disk = gaussian_filter(diff_ma, sigmas[0], points=indices)
+    pre_disk = gaussian_filter(diff_ma, sigmas[0])
     for sigma in sigmas[1:]:
         cur_disk = gaussian_filter(diff_ma, sigma)
         dev_diff = (cur_disk - pre_disk)[indices[0], indices[1]]

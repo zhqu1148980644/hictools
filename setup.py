@@ -9,9 +9,7 @@ import os
 import sys
 from shutil import rmtree
 
-from Cython.Build import cythonize
 from setuptools import find_packages, setup, Command, Extension
-import numpy as np
 
 # Package meta-data.
 NAME = 'hictools'
@@ -19,8 +17,8 @@ DESCRIPTION = 'Tools for handling hic data'
 URL = 'https://github.com/zhqu1148980644/hictools'
 EMAIL = 'zhongquan789@gmail.com'
 AUTHOR = 'BAKEZQ'
-REQUIRES_PYTHON = '>=3.6.0'
-VERSION = '0.0.3'
+REQUIRES_PYTHON = '>=3.7.0'
+VERSION = '0.1.4'
 
 # The rest you shouldn't have to touch too much :)
 # ------------------------------------------------
@@ -94,11 +92,7 @@ def get_install_requires():
 
 
 # from https://stackoverflow.com/questions/31043774/customize-location-of-so-file-generated-by-cython
-ext_modules = [
-    Extension("hictools.utils.cnumtools",
-              ['hictools/utils/cnumtools.pyx'],
-              include_dirs=[np.get_include()])
-]
+ext_modules = []
 
 # Where the magic happens:
 setup(
@@ -112,7 +106,6 @@ setup(
     python_requires=REQUIRES_PYTHON,
     url=URL,
     packages=find_packages(exclude=["tests", "*.tests", "*.tests.*", "tests.*"]),
-    ext_modules=cythonize(ext_modules),
     # If your package is a single module, use this instead of 'packages':
     # py_modules=['mypackage'],
     install_requires=get_install_requires(),
@@ -120,7 +113,9 @@ setup(
         [console_scripts]
         hictools=hictools.cli:cli
     ''',
-    # extras_require=EXTRAS,
+    extras_require={
+        "test": ["mypy", "pytest"]
+    },
     include_package_data=True,
     zip_safe=False,
     license='MIT',
@@ -128,9 +123,8 @@ setup(
         # Trove classifiers
         # Full list: https://pypi.python.org/pypi?%3Aaction=list_classifiers
         'License :: OSI Approved :: MIT License',
-        'Programming Language :: Python',
         'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.6',
+        'Programming Language :: Python :: 3.8',
         'Programming Language :: Python :: Implementation :: CPython',
         'Programming Language :: Python :: Implementation :: PyPy'
     ],

@@ -6,7 +6,6 @@ import sys
 import cooler
 import h5py
 import pytest
-import wget
 
 sys.path.insert(0, '../')
 
@@ -14,6 +13,13 @@ COOL_URL = "ftp://cooler.csail.mit.edu/coolers/hg19/Rao2014-K562-MboI-allreps-fi
 COOL = 'data/' + COOL_URL[COOL_URL.rfind('/') + 1:]
 MCOOL = COOL.replace('.cool', '.mcool')
 SUB_MCOOL = 'data/' + "test.mcool"
+
+
+def download(url, filename):
+    import urllib.request
+    import shutil
+    with urllib.request.urlopen(url) as response, open(filename, 'wb') as out_file:
+        shutil.copyfileobj(response, out_file)
 
 
 def reso_uri(reso=10000):
@@ -29,23 +35,24 @@ def load_pyx():
     os.chdir('../')
     np_inc = np.get_include()
     env = os.environ.copy()
-    env.update({ "C_INCLUDE_PATH": np_inc, "CPLUS_INCLUDE_PATH": np_inc })
+    env.update({"C_INCLUDE_PATH": np_inc, "CPLUS_INCLUDE_PATH": np_inc})
     p = subprocess.Popen("cythonize -q -f -b -i **/*.pyx",
-            shell=True, env=env, stdout=-1, stderr=-1)
+                         shell=True, env=env, stdout=-1, stderr=-1)
     p.wait()
     os.chdir(back_up)
 
 
 @pytest.fixture(scope='module')
 def get_cool():
-    from hictools.io import extract_cool
-    def resolution(reso):
+    from hictools.utils.io import extract_cool
+
+    def cool_path(reso):
         return f'{os.path.abspath(SUB_MCOOL)}{reso_uri(reso)}'
 
     if (not os.path.exists(COOL)
             and not os.path.exists(SUB_MCOOL)
             and not os.path.exists(MCOOL)):
-        wget.download(COOL_URL, COOL)
+        download(COOL_URL, COOL)
 
     if not os.path.exists(SUB_MCOOL):
         if not os.path.exists(MCOOL):
@@ -81,14 +88,14 @@ def get_cool():
             os.remove(SUB_MCOOL)
             raise e
 
-    return resolution
+    return cool_path
 
 
 @pytest.fixture(scope='module')
 def get_chrom(get_cool, load_pyx):
-    from hictools.api import ChromMatrix
+    from hictools.chrommatrix import ChromMatrix
 
-    def resolution(reso):
+    def chrom_matrix(reso):
         return ChromMatrix(cool_dict[reso], random.choice(chroms))
 
     cool_path = get_cool(100000)
@@ -106,4 +113,4 @@ def get_chrom(get_cool, load_pyx):
         100000: cooler.Cooler(get_cool(100000))
     }
 
-    return resolution
+    return chrom_matrix
