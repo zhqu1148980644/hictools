@@ -4,6 +4,7 @@ import uvloop
 from typing import Union
 from pathlib import Path
 from functools import partial
+import concurrent
 from concurrent.futures import ProcessPoolExecutor
 
 import click
@@ -198,9 +199,7 @@ def serve(ctx, store_uri, host, port, paths, workers):
                 echo(f"Run 'hictools hgserver view --api_port {port} \
                        to visualize in your web browser.", "green")
             # wait to be done
-            for fut in futures:
-                fut.result()
-
+            concurrent.futures.wait(futures)
     except KeyboardInterrupt:
         pass
     except Exception as e:
