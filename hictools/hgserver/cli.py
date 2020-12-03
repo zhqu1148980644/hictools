@@ -219,6 +219,7 @@ def run_server(kwargs):
 
 
 def run_monitor(store_uri, paths):
+    import asyncio
     import uvloop
     from .store import default_monitor as monitor
     uvloop.install()
