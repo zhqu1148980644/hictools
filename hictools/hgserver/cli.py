@@ -1,11 +1,14 @@
 import os
 import socket
+import uvloop
 from typing import Union
 from pathlib import Path
 from functools import partial
 from concurrent.futures import ProcessPoolExecutor
 
 import click
+
+uvloop.install()
 
 click.option = partial(click.option, show_default=True)
 logging_level = "error"
@@ -210,9 +213,7 @@ def serve(ctx, store_uri, host, port, paths, workers):
 
 
 def run_server(kwargs):
-    import uvloop
     from .server import Server
-    uvloop.install()
 
     server = Server()
     server.run(**kwargs)
@@ -220,9 +221,7 @@ def run_server(kwargs):
 
 def run_monitor(store_uri, paths):
     import asyncio
-    import uvloop
     from .store import default_monitor as monitor
-    uvloop.install()
 
     for path in paths:
         monitor(path)
