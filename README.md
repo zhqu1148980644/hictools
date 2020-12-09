@@ -10,34 +10,28 @@ Currently, hictools is mainly composed of 3 parts:
 - Python `api` for handling outputs of the pipeline(`.cool`).
 - A simple yet user friendly `higlass server`.
 
+# requirements
+
+- [python3.6+](https://www.python.org/downloads/)
+- [nextflow](https://www.nextflow.io/)
 
 # Install
 
-
 ```
 pip install hictoools
-
-```
-or
-
-```
-git clone https://github.com/zhqu1148980644/hictools.git
-cd hictools && pip install ./
 ```
 
 # Usage
 
 ## Pipeline
 
-
-- ##### **Install** [nextflow](https://www.nextflow.io/)
 - #####  Fill in the config file and run.
 
  Fill in a config file in order to  specify the desired sample files(.fastq) to process.
 You can find a template config file in the current folder named `config_template.yml` after you executed this command:
 
 ```bash
-nextflow run zhqu1148980644/hictools
+nextflow pull zhqu1148980644/hictools && nextflow run zhqu1148980644/hictools
 ```
 
 - ##### Run the pipeline with this config file.
