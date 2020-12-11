@@ -67,7 +67,7 @@ class ChromMatrix(object):
         :param data: Union[cooler.Cooler, str]. Path of .cool file or cooler.Cooler object.
         :param chrom: str: Chromosome name.
         """
-        if isinstance(data, str) and data.endswith(".cool"):
+        if isinstance(data, str) and "cool" in data:
             data = cooler.Cooler(data)
         self._observed, self._weights, self.cool, self.chrom, self.binsize, self.start \
             = extract_matrix(data, chrom, binsize, start)

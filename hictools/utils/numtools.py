@@ -4,7 +4,8 @@ from functools import partial
 from typing import Union, Iterable, Callable, Generator, Sequence, Iterator
 
 import numpy as np
-from scipy import sparse, linalg as nl
+from scipy import sparse, linalg
+from scipy.sparse import linalg as sp_linalg
 
 from .utils import suppress_warning
 
@@ -183,9 +184,9 @@ def eig(mat, vecnum=3):
     :return:
     """
     if is_symmetric(mat):
-        eigvals, eigvecs = sparse.linalg.eigsh(mat, vecnum)
+        eigvals, eigvecs = sp_linalg.eigsh(mat, vecnum)
     else:
-        eigvals, eigvecs = sparse.linalg.eigs(mat, vecnum)
+        eigvals, eigvecs = sp_linalg.eigs(mat, vecnum)
 
     order = np.argsort(-np.abs(eigvals))
     eigvals = eigvals[order]
@@ -203,7 +204,7 @@ def pca(mat, vecnum=3):
     """
     center = mat - np.mean(mat, axis=0)
     cov = np.dot(center.T, center)
-    eigvals, eigvecs = sparse.linalg.eigsh(cov, vecnum)
+    eigvals, eigvecs = sp_linalg.eigsh(cov, vecnum)
     eigvals /= (mat.shape[0] - 1)
 
     return eigvals[::-1], eigvecs[:, ::-1].T
@@ -289,7 +290,7 @@ class Toeplitz(SliceMixin):
                 else:
                     harray = harray[:width]
 
-            ma = nl.toeplitz(varray[::row_slice.step], harray[::col_slice.step])
+            ma = linalg.toeplitz(varray[::row_slice.step], harray[::col_slice.step])
 
             return ma.ravel() if ma.size == 1 else ma
 
