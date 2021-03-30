@@ -57,7 +57,7 @@ class auto_open(object):
         :return:
         """
 
-        text = not (True if (len(mode) == 2 and mode[1] == 'b') else False)
+        text = len(mode) != 2 or mode[1] != 'b'
         with open(file, mode) as f:
             if mode[0] == 'w':
                 stdin, stdout = subprocess.PIPE, f
@@ -65,7 +65,7 @@ class auto_open(object):
                 stdin, stdout = f, subprocess.PIPE
             else:
                 raise ValueError('mode only support write and read')
-            pipe = subprocess.Popen(
+            return subprocess.Popen(
                 command,
                 stdin=stdin,
                 stdout=stdout,
@@ -73,8 +73,6 @@ class auto_open(object):
                 bufsize=-1,
                 universal_newlines=text
             )
-
-            return pipe
 
     @classmethod
     def _handle_bam(cls, file: str, mode: str, nproc: int) -> subprocess.Popen:
@@ -131,10 +129,7 @@ class auto_open(object):
             self._stream = open(self._file, self.mode)
             return self._stream
 
-        if self.mode[0] == 'w':
-            self._stream = self._pipe.stdin
-        else:
-            self._stream = self._pipe.stdout
+        self._stream = self._pipe.stdin if self.mode[0] == 'w' else self._pipe.stdout
 
     def __enter__(self):
         """Emulating context_manager-like behavior.
@@ -244,11 +239,11 @@ def extract_cool(cool_path: str, sub_cool_path: str, chroms: Iterable, intra_onl
     """
 
     def open_mcool(filename, mode='r') -> h5py.File:
-        if '::' in filename:
-            filename, grp_name = filename.split('::')
-            return h5py.File(filename, mode)[grp_name]
-        else:
+        if '::' not in filename:
             return h5py.File(filename, mode)
+
+        filename, grp_name = filename.split('::')
+        return h5py.File(filename, mode)[grp_name]
 
     log = get_logger('Extract sub_cool.')
     log.info(f'Extract sub data from {cool_path}.')

@@ -25,8 +25,7 @@ def pairwise_distances(x: Tensor) -> Tensor:
     x_norm = (x ** 2).sum(1).reshape(-1, 1)
     y_t = x.T
     y_norm = x_norm.reshape(1, -1)
-    dist = x_norm + y_norm - 2.0 * x @ y_t
-    return dist
+    return x_norm + y_norm - 2.0 * x @ y_t
 
 
 class ReConstruct(ABC):
@@ -65,7 +64,7 @@ class ReConstruct(ABC):
         optimizer = optim([self._pos], **kwargs)
         for b_idx in range(batches):
             optimizer.zero_grad()
-            for i in range(steps):
+            for _ in range(steps):
                 self.loss.backward(retain_graph=True)
                 optimizer.step()
             log.info(f"batch: {b_idx + 1}/{batches}\tloss: {self.loss}")
@@ -131,8 +130,7 @@ class MetricMDS(ReConstruct):
     def loss(self):
         d_exp = self.d_exp
         d = pairwise_distances(self._pos)
-        cost = ((d - d_exp) ** 2).mean() / d_exp.max()
-        return cost
+        return ((d - d_exp) ** 2).mean() / d_exp.max()
 
 
 class Lorentzian(ReConstruct):

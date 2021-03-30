@@ -179,19 +179,17 @@ class TileSet(object):
     def tiles(cls, tileset_dict, tids):
         filetype = tileset_dict.get('filetype', "")
         if filetype == "bam":
-            data = bam_tiles.tiles(
+            return bam_tiles.tiles(
                 tileset_dict.datafile, tids,
                 index_filename=tileset_dict.index_filename
             )
         elif filetype == "cooler":
-            data = cooler_tiles.tiles(tileset_dict['datafile'], tids)
+            return cooler_tiles.tiles(tileset_dict['datafile'], tids)
         elif filetype == "bigwig":
             import clodius.tiles.bigwig as bigwig_tiles
-            data = bigwig_tiles.tiles(tileset_dict['datafile'], tids)
+            return bigwig_tiles.tiles(tileset_dict['datafile'], tids)
         else:
-            data = {'error': f"Unknown tileset filetype: {filetype}"}
-
-        return data
+            return {'error': f"Unknown tileset filetype: {filetype}"}
 
 
 class TilesetsMonitor(FileMonitor):

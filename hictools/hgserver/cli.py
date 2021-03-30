@@ -181,7 +181,7 @@ def serve(ctx, store_uri, host, port, paths, workers):
             futures.append(fut)
 
             # serving
-            for i in range(1, workers + 1):
+            for _ in range(1, workers + 1):
                 fut = executor.submit(partial(run_server, kwargs))
                 futures.append(fut)
 

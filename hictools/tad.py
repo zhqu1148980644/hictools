@@ -34,11 +34,9 @@ def di_score(matrix: Union[np.ndarray, sparse.csr_matrix],
         up = up.sum(axis=1)
         down = down.sum(axis=1)
         expected = (up + down) / 2.0
-        di_array = (np.sign(down - up) *
+        return (np.sign(down - up) *
                     ((up - expected) ** 2 + (down - expected) ** 2)
                     / expected)
-
-        return di_array
 
     def adap_di(up, down):
         """Compute directionality index described in:\n
@@ -50,10 +48,8 @@ def di_score(matrix: Union[np.ndarray, sparse.csr_matrix],
         mean_down = down.mean(axis=1)
         var_up = np.square(up - mean_up[:, None]).sum(axis=1)
         var_down = np.square(down - mean_down[:, None]).sum(axis=1)
-        di_array = ((mean_down - mean_up) /
+        return ((mean_down - mean_up) /
                     np.sqrt((var_up + var_down) / (window_size * (window_size - 1))))
-
-        return di_array
 
     method_map = {
         'standard': standard_di,
@@ -209,5 +205,4 @@ def rinsu_score(matrix: np.ndarray, width_range: slice = slice(4, 15), add: bool
     return ris.sum(axis=0) / num_nonzero, ris
 
 
-if __name__ == "__main__":
-    pass
+pass
