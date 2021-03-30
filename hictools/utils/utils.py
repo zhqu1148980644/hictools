@@ -86,17 +86,17 @@ def paste_doc(source: Union[str, Callable]):
         return None
 
     def decorate(target: Union[Callable, click.Command]):
-        if isinstance(target, click.Command):
-            # copy doc string to argument's help
-            for arg in target.params:
-                if not isinstance(arg, click.Option):
-                    continue
-                desc = in_params(arg)
-                if desc and (not arg.help):
-                    arg.help = desc
-            return target
-        else:  # copy docstring to another function
+        if not isinstance(target, click.Command):  # copy docstring to another function
             return NotImplemented
+
+        # copy doc string to argument's help
+        for arg in target.params:
+            if not isinstance(arg, click.Option):
+                continue
+            desc = in_params(arg)
+            if desc and (not arg.help):
+                arg.help = desc
+        return target
 
     return decorate
 
@@ -116,9 +116,7 @@ def get_logger(name: str = None) -> logging.Logger:
         name_ = call_frame.f_code.co_name
         name = f"{file_}:{name_}" if name != '<module>' else file_
 
-    log = logging.getLogger(name)
-
-    return log
+    return logging.getLogger(name)
 
 
 class MethodWrapper(object):
@@ -179,5 +177,4 @@ class MethodWrapper(object):
                 setattr(wrap_cls, attr, wrapper(attr, attr_obj))
 
 
-if __name__ == "__main__":
-    pass
+pass
