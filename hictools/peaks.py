@@ -97,9 +97,11 @@ class HiccupsPeaksFinder(object):
                 yield kernel
 
         def rect(x_start, x_len, y_start, y_len):
-            return set((i, j)
-                       for i in range(x_start, x_start + x_len)
-                       for j in range(y_start, y_start + y_len))
+            return {
+                (i, j)
+                for i in range(x_start, x_start + x_len)
+                for j in range(y_start, y_start + y_len)
+            }
 
         length = 2 * w + 1
         center = rect(-p, 2 * p + 1, -p, 2 * p + 1)
@@ -316,7 +318,7 @@ class HiccupsPeaksFinder(object):
 
         def away_gap_mask(indices, gap_mask, extend_width) -> np.ndarray:
             """Return mask of valid peaks away from gap regions."""
-            for i in range(extend_width):
+            for _ in range(extend_width):
                 gap_mask |= np.r_[gap_mask[1:], [False]]
                 gap_mask |= np.r_[[False], gap_mask[: -1]]
             gap_region = set(np.where(gap_mask)[0])
@@ -333,7 +335,6 @@ class HiccupsPeaksFinder(object):
         """Aggregate peak-infos into a pd.DataFrame object.
         """
         region_names = ['donut', 'horizontal', 'vertical', 'lower_left']
-        num_region = len(region_names)
         col_names = (['i', 'j', 'ob']
                      + ['ex_' + region for region in region_names]
                      + ['pval_' + region for region in region_names]
@@ -341,25 +342,26 @@ class HiccupsPeaksFinder(object):
                      + ['enrich_ratio', 'width', 'height'])
         dtypes = [np.int] * 3 + [np.float] * (len(col_names) - 3)
 
-        if peaks_tuple:
-            indices, contacts_array, lambda_array, enrich_ratio, pvals, padjs, shape = peaks_tuple
-            peaks: np.ndarray = np.zeros(shape=contacts_array.size,
-                                         dtype=[(col_name, dtype) for col_name, dtype in zip(col_names, dtypes)])
-            fields_name = list(peaks.dtype.names)
-            peaks['i'], peaks['j'], peaks['ob'] = indices[0], indices[1], contacts_array
-            peaks[fields_name[3: 3 + num_region]] = list(zip(*lambda_array))
-            peaks[fields_name[3 + num_region: 3 + 2 * num_region]] = list(zip(*pvals))
-            peaks[fields_name[3 + 2 * num_region: 3 + 3 * num_region]] = list(zip(*padjs))
-            peaks[fields_name[-3]] = enrich_ratio
-            peaks[fields_name[-2:]] = list(zip(*shape))
-            peaks_df = pd.DataFrame(peaks)
-            if binsize is not None and binsize > 1:
-                peaks_df[['i', 'j', 'width', 'height']] *= binsize
-            return peaks_df
-        else:
+        if not peaks_tuple:
             return pd.DataFrame(columns=col_names).astype(
                 {name: t for name, t in zip(col_names, dtypes)}
             )
+
+        indices, contacts_array, lambda_array, enrich_ratio, pvals, padjs, shape = peaks_tuple
+        peaks: np.ndarray = np.zeros(shape=contacts_array.size,
+                                     dtype=[(col_name, dtype) for col_name, dtype in zip(col_names, dtypes)])
+        fields_name = list(peaks.dtype.names)
+        peaks['i'], peaks['j'], peaks['ob'] = indices[0], indices[1], contacts_array
+        num_region = len(region_names)
+        peaks[fields_name[3: 3 + num_region]] = list(zip(*lambda_array))
+        peaks[fields_name[3 + num_region: 3 + 2 * num_region]] = list(zip(*pvals))
+        peaks[fields_name[3 + 2 * num_region: 3 + 3 * num_region]] = list(zip(*padjs))
+        peaks[fields_name[-3]] = enrich_ratio
+        peaks[fields_name[-2:]] = list(zip(*shape))
+        peaks_df = pd.DataFrame(peaks)
+        if binsize is not None and binsize > 1:
+            peaks_df[['i', 'j', 'width', 'height']] *= binsize
+        return peaks_df
 
 
 @dataclass
@@ -369,8 +371,4 @@ class ImagePeaksFinder(object):
     2: Use percentage filter to find enriched regions. -> regions.
     3: Design a statitical test method for the assessment pf  randomness and enrichment. -> filter points.
     """
-    pass
-
-
-if __name__ == "__main__":
     pass

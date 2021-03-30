@@ -280,10 +280,9 @@ class ChromMatrix(object):
 
         if sparse:
             return spoe
-        else:
-            dsoe = (spoe + spoe.T).toarray()
-            get_diag(dsoe)[:] /= 2
-            return dsoe
+        dsoe = (spoe + spoe.T).toarray()
+        get_diag(dsoe)[:] /= 2
+        return dsoe
 
     @suppress_warning
     def corr(self) -> np.ndarray:
@@ -317,6 +316,3 @@ def output_handler(raw_fn, args, kwargs, extra_kwargs, output):
 
 
 MethodWrapper.wrap_attr(ChromMatrix, filter_fn, MethodWrapper(output_handler=output_handler))
-
-if __name__ == "__main__":
-    pass

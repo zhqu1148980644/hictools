@@ -163,7 +163,7 @@ def get_decay(mat: Union[np.ndarray],
         res_li = [next(mean_gen) for offset in range(st, ed)]
         res = agg_fn(res_li)
         res = 0 if np.isnan(res) else res
-        for i in range(st, ed):
+        for _ in range(st, ed):
             yield res
 
 
@@ -232,10 +232,7 @@ class SliceMixin(object):
     @staticmethod
     def _is_slices(slices):
         try:
-            for slice_ in slices:
-                if not isinstance(slice_, slice):
-                    return False
-            return True
+            return all(isinstance(slice_, slice) for slice_ in slices)
         except TypeError as e:
             return isinstance(slices, slice)
 

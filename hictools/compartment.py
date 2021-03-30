@@ -124,5 +124,4 @@ class Compartment(object):
         return self.chrom_ma.handle_mask(vecs, full=full)
 
 
-if __name__ == '__main__':
-    pass
+pass

@@ -63,11 +63,9 @@ def create_app(db):
     @app.get('/api/v1/tileset_info/', response_class=UJSONResponse)
     async def tileset_info(uuids: List[str] = Query(None, alias="d")):
         tilesets = await fetch_tilesets(uuid=uuids)
-        info = {}
         existed_uuids = set(uuids) & set(tilesets.keys())
 
-        for uuid in existed_uuids:
-            info[uuid] = TileSet.tileset_info(tilesets[uuid])
+        info = {uuid: TileSet.tileset_info(tilesets[uuid]) for uuid in existed_uuids}
         for uuid in set(uuids) - existed_uuids:
             info[uuid] = {'error': f"No such tileset with uuid: {uuid}"}
 
