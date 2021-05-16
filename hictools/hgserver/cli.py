@@ -172,17 +172,23 @@ def serve(ctx, store_uri, host, port, paths, workers):
     if not paths:
         paths = [os.getcwd()]
     paths = [p for p in paths if Path(p).is_dir() and Path(p).exists()]
-
+    
+    def raise_error(fut):
+        if fut.exception():
+            raise fut.exception()
+    
     futures = []
     try:
         with ProcessPoolExecutor(workers + 1) as executor:
             # run monitor in process
             fut = executor.submit(partial(run_monitor, store_uri, paths))
+            fut.add_done_callback(raise_error)
             futures.append(fut)
 
             # serving
             for _ in range(1, workers + 1):
                 fut = executor.submit(partial(run_server, kwargs))
+                fut.add_done_callback(raise_error)
                 futures.append(fut)
 
             # echo
