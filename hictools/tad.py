@@ -355,6 +355,8 @@ class TadScore(Score):
                         s_sum_back=s_sum_back, c_sum_back=c_sum_back)
 
     def __call_raw_diamond_diff(self, st, ed, left=None, right=None, **kwargs):
+        """Technically, it's similar to arrowtad method.
+        """
         score = 0
         if ed - st < 4 or ed - st > 400:
             is_tad = False
@@ -434,7 +436,6 @@ class TadScore(Score):
         w = (ed - st) // 2
         #         w = (ed - st)
 
-        out_left = out_right = -1
         try:
             out_left = self.mean(max(0, st - w), st, st, ed, ma)
         except:
@@ -447,7 +448,20 @@ class TadScore(Score):
         return out_left, out_right
 
 
-def solve(borders: List[int], score: Score):
+def dp_solve(borders: List[int], score: Score):
+    """Find hierarchical TADs by solving a dynamic programming problem, maximize a certain objective score.
+
+    Formula:
+        dp[l][r] = max(dp[l][mid] + dp[mid][r]) for mind in (l: r)
+
+    Time complexity:
+        Only iterate over borders, n = len(border), O(n^3)
+
+    Reference:
+        ONTAD, difference:
+            1: this method uses iteration instead of recursion
+            2: with different objective function
+    """
     assert isinstance(score, Score)
     n = len(borders)
     dp = [[score.inf for i in range(n)] for i in range(n)]
@@ -469,6 +483,9 @@ def solve(borders: List[int], score: Score):
 
 
 def call_tads(ob: np.ndarray):
+    """
+    Currently this method will results too much tads.
+    """
     from scipy import ndimage, signal
     ob[~np.isfinite(ob)] = 0
 
@@ -481,5 +498,5 @@ def call_tads(ob: np.ndarray):
         'ob': ob
     }
     score = TadScore(info=info)
-    dp = solve(borders, score)
+    dp = dp_solve(borders, score)
     return dp[0][-1].extract_tads()
