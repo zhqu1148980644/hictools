@@ -1,12 +1,11 @@
 """Command line tools."""
-import sys
 import logging
+import sys
 from functools import partial
 
 import click
 
 from . import config
-from .hgserver.cli import hgserver
 
 click.option = partial(click.option, show_default=True)
 CONTEXT_SETTINGS = dict(help_option_names=['-h', '--help'])
@@ -36,8 +35,6 @@ def cli(log_file, debug):
     else:
         log.setLevel(logging.INFO)
 
-
-cli.add_command(hgserver)
 
 if __name__ == "__main__":
     cli()

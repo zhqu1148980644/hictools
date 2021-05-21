@@ -1,11 +1,12 @@
 """Tools for compartment analysis."""
 
+from dataclasses import dataclass
+
 import numpy as np
 
-from dataclasses import dataclass
+from .chrommatrix import ChromMatrix
 from .utils.numtools import fill_diags, eig, pca
 from .utils.utils import suppress_warning
-from .chrommatrix import ChromMatrix
 
 
 def get_pca_compartment(mat: np.ndarray, vecnum: int = 3):
@@ -123,5 +124,3 @@ class Compartment(object):
 
         return self.chrom_ma.handle_mask(vecs, full=full)
 
-
-pass

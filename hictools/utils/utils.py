@@ -1,11 +1,12 @@
 """Utils for other modules."""
-import re
-import inspect
 import functools
+import inspect
 import logging
 import multiprocessing
+import re
 import warnings
 from typing import Callable, Tuple, Union, Iterable, Mapping, Any
+
 import click
 
 CPU_CORE = multiprocessing.cpu_count()

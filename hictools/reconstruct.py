@@ -1,6 +1,6 @@
 import typing as T
-from functools import lru_cache
 from abc import ABC, abstractmethod
+from functools import lru_cache
 
 import numpy as np
 import pandas as pd

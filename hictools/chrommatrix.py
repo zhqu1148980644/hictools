@@ -1,9 +1,9 @@
 """Interface."""
 from functools import partial, lru_cache, singledispatch, cached_property
-from typing import Union, Tuple, Any, TypeVar
+from typing import Union, Tuple, Any
 
-import numpy as np
 import cooler
+import numpy as np
 from scipy import sparse
 
 Array = Union[np.ndarray, sparse.spmatrix]

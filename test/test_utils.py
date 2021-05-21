@@ -1,4 +1,5 @@
 import sys
+
 sys.path.insert(0, '../')
 
 
@@ -12,4 +13,3 @@ def test_get_logger():
 
     l2 = a()
     assert l2.name == 'test_utils:a'
-

@@ -5,8 +5,8 @@ from typing import Union
 
 import numpy as np
 from scipy import stats, sparse
-from statsmodels.stats import multitest
 from scipy.ndimage.filters import gaussian_filter
+from statsmodels.stats import multitest
 
 from .utils.numtools import apply_along_diags
 

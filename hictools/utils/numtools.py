@@ -1,5 +1,5 @@
-import numbers
 import itertools
+import numbers
 from functools import partial
 from typing import Union, Iterable, Callable, Generator, Sequence, Iterator
 

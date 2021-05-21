@@ -1,7 +1,7 @@
 """Tools for Loop-detection analysis."""
+from dataclasses import dataclass
 from multiprocessing import Pool
 from typing import Tuple, Sequence, Iterator
-from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -9,9 +9,9 @@ from scipy import ndimage, stats, sparse
 from sklearn.cluster import DBSCAN
 from statsmodels.stats import multitest
 
-from .utils.utils import CPU_CORE, suppress_warning
-from .utils.numtools import mask_array, index_array, Toeplitz
 from .chrommatrix import ChromMatrix, Array
+from .utils.numtools import mask_array, index_array, Toeplitz
+from .utils.utils import CPU_CORE, suppress_warning
 
 HKernels = Tuple[Sequence[np.ndarray], Tuple[int, int]]
 
